@@ -1,0 +1,1 @@
+"""FraudSpike AI backend application package."""

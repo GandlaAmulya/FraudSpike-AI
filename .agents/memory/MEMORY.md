@@ -1,0 +1,1 @@
+- [Empty monorepo dependency setup](empty-monorepo-dependencies.md) — Python package setup can create root metadata; keep backend dependency metadata scoped and recheck generated files.

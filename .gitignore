@@ -1,0 +1,38 @@
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# Python / backend
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+backend/.venv/
+backend/.python-version
+
+# Local runtime data
+backend/data/
+*.sqlite
+*.sqlite3
+
+# Test and build output
+coverage/
+dist/
+build/
