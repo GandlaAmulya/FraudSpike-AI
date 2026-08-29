@@ -1,0 +1,160 @@
+We are continuing development of FraudSpike AI — Autonomous Payment Fraud-Spike Detection & Investigation Agent.
+
+IMPORTANT: Work ONLY on the core data contracts in this task.
+
+Do NOT implement:
+- the fraud detector
+- AI/LLM integration
+- Razorpay integration
+- dashboard UI
+- autonomous investigation logic
+- fake/sample evaluation metrics
+- production business logic
+
+First inspect the existing scaffold and preserve its architecture.
+
+Create clean, strongly typed contracts/models for the following concepts:
+
+1. PaymentEvent
+Represent a single payment event with fields needed for fraud-spike analysis, including:
+- unique payment/event ID
+- merchant ID
+- timestamp
+- amount
+- currency
+- payment method/type
+- payment status
+- customer identifier (privacy-safe/non-PII representation)
+- device identifier (privacy-safe representation)
+- geographic information at an appropriate coarse level
+- fraud label where applicable
+- metadata needed for future feature engineering
+
+2. FraudLabel
+Clearly distinguish:
+- legitimate
+- fraudulent
+- unknown/unlabeled
+
+Do not assume that every payment is labeled.
+
+3. FraudSpikeIncident
+Represent a detected fraud-spike incident, including:
+- incident ID
+- merchant ID
+- detection timestamp
+- analysis window
+- baseline fraud rate
+- observed fraud rate
+- deviation/change
+- affected transaction count
+- severity
+- status/lifecycle
+- detector version
+- confidence where applicable
+
+4. EvidenceItem
+Represent structured evidence used during an investigation, including:
+- evidence ID
+- incident ID
+- evidence category
+- metric/value
+- baseline/comparison value where applicable
+- supporting transaction/event references
+- timestamp/window
+- evidence strength/confidence where appropriate
+
+5. Investigation
+Represent an investigation associated with an incident, including:
+- investigation ID
+- incident ID
+- status
+- start/end timestamps
+- hypotheses
+- evidence references
+- verification result
+- confidence
+- explanation
+- recommended defensive response
+
+6. EvaluationResult
+Create a contract for genuine model evaluation containing:
+- evaluation ID
+- dataset/version identifier
+- held-out test-set identifier
+- detector version
+- true positives
+- true negatives
+- false positives
+- false negatives
+- precision
+- recall
+- F1
+- false-positive count
+- false-positive cost
+- evaluation timestamp
+
+IMPORTANT:
+Metrics must be nullable/absent until actually calculated.
+Do not put placeholder values such as 99%, 95%, etc.
+
+7. AuditEvent
+Represent an immutable audit-log event including:
+- event ID
+- timestamp
+- event type
+- actor/source
+- incident/investigation reference where applicable
+- action
+- structured details
+
+ARCHITECTURE REQUIREMENTS:
+
+Backend:
+- Use appropriate Python typing/dataclasses/Pydantic models consistent with the existing FastAPI architecture.
+- Keep API schemas separate from database models where appropriate.
+- Place contracts in the existing schemas/models structure rather than creating unnecessary duplicate directories.
+- Follow the project's existing conventions.
+
+Frontend:
+- Create corresponding TypeScript types/interfaces only where useful for future API communication.
+- Do not build UI components.
+
+DATA INTEGRITY REQUIREMENTS:
+
+- Use UTC timestamps consistently.
+- Use Decimal-safe handling for monetary amounts rather than binary floating-point where appropriate.
+- Avoid storing raw sensitive personal information.
+- Clearly distinguish identifiers from actual PII.
+- Make enums explicit where appropriate.
+- Keep contracts extensible for future Razorpay Test Mode events without coupling the entire domain model to Razorpay.
+
+TESTING:
+
+Add focused tests validating:
+- required fields
+- enum validation
+- invalid data rejection
+- nullable evaluation metrics
+- monetary/timestamp validation
+- serialization/deserialization
+
+Do NOT create fake fraud metrics or claim model performance.
+
+DOCUMENTATION:
+
+Update the relevant README/docs with a concise explanation of:
+- the core domain objects
+- how PaymentEvent flows through the future system
+- why evaluation metrics remain empty until a real held-out evaluation is run
+
+Before modifying files, provide a concise implementation plan.
+
+After implementation, report:
+1. files changed
+2. contracts created
+3. tests added
+4. test results
+5. any architectural decisions or assumptions
+
+Do not proceed to the next feature after completing this task.

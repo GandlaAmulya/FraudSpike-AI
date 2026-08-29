@@ -36,6 +36,44 @@ backend.
 - API contracts should be defined with typed Pydantic schemas in the backend
   and mirrored TypeScript types in the frontend as features are added.
 
+## Core domain contracts
+
+The shared contract layer currently defines:
+
+- `PaymentEvent`: one payment event with a stable event reference, merchant,
+  UTC timestamp, Decimal amount, payment attributes, privacy-safe customer and
+  device references, coarse geography, optional fraud label, and extensible
+  metadata.
+- `FraudSpikeIncident`: a merchant-level detection result with its analysis
+  window, baseline and observed rates, deviation, severity, lifecycle status,
+  detector version, and optional confidence.
+- `EvidenceItem`: structured evidence tied to an incident, including its
+  metric, comparison value, supporting event references, time window, and
+  confidence.
+- `Investigation`: an incident investigation with hypotheses, evidence
+  references, verification result, explanation, and defensive response.
+- `EvaluationResult`: a versioned evaluation record whose counts and metrics
+  are nullable until a real held-out evaluation has run.
+- `AuditEvent`: a frozen, append-only-shaped record of defensive actions and
+  their structured details.
+
+### Payment event flow
+
+Future ingestion will validate each incoming event as a `PaymentEvent`, store
+it through the database boundary, and pass it to detection services. A
+detector may create a `FraudSpikeIncident`; evidence and investigation
+services then reference the original event IDs rather than copying sensitive
+raw data. Verification, recommendations, and lifecycle transitions are
+recorded as `AuditEvent` entries.
+
+### Evaluation integrity
+
+`EvaluationResult` deliberately leaves confusion counts, precision, recall,
+F1, and false-positive cost empty until a versioned dataset has been scored
+against a genuinely held-out test set. The contract accepts no invented
+performance claims; an Evaluation Center must display only values produced by
+the future evaluation service.
+
 ## Data and safety boundaries
 
 - SQLite is the initial persistence target.
