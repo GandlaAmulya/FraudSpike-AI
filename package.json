@@ -2,11 +2,8 @@
   "name": "fraudspike-ai",
   "private": true,
   "version": "0.1.0",
-  "workspaces": [
-    "frontend"
-  ],
   "scripts": {
-    "dev": "npm run dev --workspace frontend",
-    "build": "npm run build --workspace frontend"
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build"
   }
 }

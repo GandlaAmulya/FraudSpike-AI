@@ -1,0 +1,24 @@
+# Final demo checklist
+
+- [ ] Backend running
+- [ ] Frontend running
+- [ ] Dashboard visible
+- [ ] Merchant intelligence visible
+- [ ] Incident workflow accessible
+- [ ] Investigation visible
+- [ ] Verification visible
+- [ ] Response action available
+- [ ] Audit trail populated
+- [ ] Evaluation screen visible
+- [ ] Confusion matrix visible
+- [ ] Precision displayed
+- [ ] Recall displayed
+- [ ] F1 displayed
+- [ ] False-positive cost displayed
+- [ ] System status visible
+- [ ] Razorpay demo mode disclosed
+- [ ] No credentials exposed
+- [ ] Synthetic dataset disclosed
+- [ ] README present
+- [ ] Architecture documented
+- [ ] 5-minute demo flow ready

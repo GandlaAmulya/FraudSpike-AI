@@ -200,6 +200,13 @@ class FraudSpikeIncident(ContractModel):
     status: IncidentStatus = IncidentStatus.DETECTED
     detector_version: Identifier
     confidence: Probability | None = None
+    risk_score: Probability | None = None
+    evidence: list[EvidenceItem] = Field(default_factory=list)
+    suspicious_event_ids: list[Identifier] = Field(default_factory=list)
+    investigation_notes: list[str] = Field(default_factory=list)
+    resolution: str | None = None
+    created_at: UtcDateTime | None = None
+    updated_at: UtcDateTime | None = None
 
 
 class EvidenceItem(ContractModel):
@@ -262,9 +269,20 @@ class EvaluationResult(ContractModel):
     precision: Probability | None = None
     recall: Probability | None = None
     f1: Probability | None = None
+    confusion_matrix: list[list[int]] | None = Field(default=None)
+    test_set_size: int | None = Field(default=None, ge=0)
     false_positive_count: int | None = Field(default=None, ge=0)
     false_positive_cost: NonNegativeMoney | None = None
     evaluated_at: UtcDateTime | None = None
+
+    @model_validator(mode="after")
+    def confusion_matrix_must_be_2x2_when_present(self) -> EvaluationResult:
+        if self.confusion_matrix is not None:
+            if len(self.confusion_matrix) != 2 or any(
+                len(row) != 2 for row in self.confusion_matrix
+            ):
+                raise ValueError("confusion_matrix must be a 2x2 matrix")
+        return self
 
     @model_validator(mode="after")
     def duplicate_false_positive_count_must_match(self) -> EvaluationResult:

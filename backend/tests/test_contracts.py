@@ -4,6 +4,12 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
+from app.models import (
+    AuditEventModel,
+    FraudSpikeIncidentModel,
+    InvestigationModel,
+    PaymentEventModel,
+)
 from app.schemas import (
     AnalysisWindow,
     AuditEvent,
@@ -222,3 +228,10 @@ def test_unknown_fraud_label_can_be_explicitly_preserved() -> None:
 
     assert event.fraud_label is FraudLabel.UNKNOWN
     assert VerificationResult.INCONCLUSIVE.value == "inconclusive"
+
+
+def test_persistence_models_are_exported_and_loadable() -> None:
+    assert PaymentEventModel.__tablename__ == "payment_events"
+    assert FraudSpikeIncidentModel.__tablename__ == "fraud_spike_incidents"
+    assert InvestigationModel.__tablename__ == "investigations"
+    assert AuditEventModel.__tablename__ == "audit_events"

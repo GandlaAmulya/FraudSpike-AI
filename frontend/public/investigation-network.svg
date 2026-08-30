@@ -1,0 +1,26 @@
+<svg width="540" height="220" viewBox="0 0 540 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="alertFlow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5EEAD4" stop-opacity="0.8"/>
+      <stop offset="50%" stop-color="#7C9CFF" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#F97316" stop-opacity="0.8"/>
+    </linearGradient>
+  </defs>
+  <rect x="18" y="30" width="504" height="160" rx="18" fill="#0B1320" stroke="#1E293B"/>
+  <path d="M58 150C108 146 130 118 171 122C218 126 223 76 270 86C322 97 320 124 370 118C404 114 423 89 484 90" stroke="url(#alertFlow)" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="58" cy="150" r="7" fill="#5EEAD4"/>
+  <circle cx="171" cy="122" r="7" fill="#7C9CFF"/>
+  <circle cx="270" cy="86" r="7" fill="#F59E0B"/>
+  <circle cx="370" cy="118" r="7" fill="#F97316"/>
+  <circle cx="484" cy="90" r="7" fill="#F43F5E"/>
+  <rect x="72" y="46" width="120" height="28" rx="9" fill="#0F172A" stroke="#23314B"/>
+  <text x="92" y="64" fill="#E2E8F0" font-size="12" font-family="Segoe UI, sans-serif">RISK DETECTED</text>
+  <rect x="188" y="54" width="104" height="28" rx="9" fill="#0F172A" stroke="#23314B"/>
+  <text x="208" y="72" fill="#E2E8F0" font-size="12" font-family="Segoe UI, sans-serif">EVIDENCE</text>
+  <rect x="310" y="62" width="116" height="28" rx="9" fill="#0F172A" stroke="#23314B"/>
+  <text x="334" y="80" fill="#E2E8F0" font-size="12" font-family="Segoe UI, sans-serif">VERIFICATION</text>
+  <rect x="176" y="130" width="128" height="28" rx="9" fill="#111827" stroke="#26364E"/>
+  <text x="200" y="148" fill="#FECACA" font-size="12" font-family="Segoe UI, sans-serif">INVESTIGATION</text>
+  <rect x="330" y="136" width="128" height="28" rx="9" fill="#111827" stroke="#26364E"/>
+  <text x="354" y="154" fill="#FECACA" font-size="12" font-family="Segoe UI, sans-serif">AUDIT</text>
+</svg>
