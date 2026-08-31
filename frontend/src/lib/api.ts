@@ -61,6 +61,13 @@ export type DashboardSummary = {
   false_positive_cost_estimate: string;
 };
 
+export function percent(value: number | string | undefined, digits = 2): string {
+  if (value === undefined || value === null || value === "") return "—";
+  const asNumber = typeof value === "string" ? Number(value) : Number(value);
+  if (Number.isNaN(asNumber)) return String(value);
+  return `${(asNumber * 100).toFixed(digits)}%`;
+}
+
 export type MerchantDetail = {
   merchant_id: string;
   total_transactions: number;

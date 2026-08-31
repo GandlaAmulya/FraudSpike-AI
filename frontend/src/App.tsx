@@ -16,7 +16,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { api } from "./lib/api";
+import { api, percent } from "./lib/api";
 import type {
   AuditEventRecord,
   DashboardSummary,
@@ -28,7 +28,7 @@ import type {
   VerificationRecord,
 } from "./lib/api";
 
-type View = "dashboard" | "merchants" | "incidents" | "investigation" | "evaluation" | "audit" | "system";
+type View = "dashboard" | "ingestion" | "stream" | "batch" | "simulator" | "merchants" | "incidents" | "investigation" | "evaluation" | "audit" | "system";
 
 const severityColors: Record<string, string> = {
   critical: "#ff6b6b",
@@ -47,6 +47,10 @@ const statusTone: Record<string, string> = {
 
 const navItems: Array<{ id: View; label: string; icon: string }> = [
   { id: "dashboard", label: "Dashboard", icon: "▣" },
+  { id: "ingestion", label: "Data Ingestion", icon: "⇪" },
+  { id: "stream", label: "Live Stream", icon: "◉" },
+  { id: "batch", label: "Batch Risk", icon: "▤" },
+  { id: "simulator", label: "Risk Simulator", icon: "⧭" },
   { id: "merchants", label: "Merchants", icon: "◫" },
   { id: "incidents", label: "Incidents", icon: "◌" },
   { id: "investigation", label: "Investigations", icon: "◎" },
@@ -80,6 +84,26 @@ function App() {
   const [auditTrail, setAuditTrail] = useState<AuditEventRecord[]>([]);
   const [evaluation, setEvaluation] = useState<EvaluationRecord | null>(null);
   const [razorpay, setRazorpay] = useState<RazorpayStatus | null>(null);
+  const [ingestionResult, setIngestionResult] = useState<Record<string, unknown> | null>(null);
+  const [streamScenario, setStreamScenario] = useState("FRAUD SPIKE");
+  const [streamStatus, setStreamStatus] = useState<"idle" | "running" | "paused">("idle");
+  const [streamMetrics, setStreamMetrics] = useState<Record<string, unknown>>({
+    events_processed: 0,
+    events_per_minute: 0,
+    current_fraud_rate: 0,
+    suspicious_events: 0,
+    active_incidents: 0,
+    processing_latency_ms: 0,
+  });
+  const [simulatorInput, setSimulatorInput] = useState({
+    merchant: "merchant-005",
+    amount: "4200",
+    velocity: "14",
+    deviceHistory: "8",
+    transactionTime: "23:30",
+    merchantFraudRate: "0.32",
+  });
+  const [simulatorResult, setSimulatorResult] = useState<Record<string, unknown> | null>(null);
 
   const loadOverview = async () => {
     try {
@@ -171,12 +195,12 @@ function App() {
   const commandMetrics = useMemo(() => {
     if (!summary) return [];
     return [
-      { label: "Overall risk posture", value: `${(summary.fraud_rate * 100).toFixed(2)}%`, tone: "accent" },
+      { label: "Overall risk posture", value: percent(summary.fraud_rate, 2), tone: "accent" },
       { label: "Active incidents", value: `${summary.active_incidents}`, tone: "default" },
       { label: "Merchants monitored", value: `${merchants.length}`, tone: "default" },
       { label: "Transactions analyzed", value: `${summary.total_transactions}`, tone: "default" },
       { label: "Detected spikes", value: `${summary.active_incidents}`, tone: "warning" },
-      { label: "Detection performance", value: evaluation ? `${(Number(evaluation.f1) * 100).toFixed(1)}%` : "—", tone: "accent" },
+      { label: "Detection performance", value: evaluation ? percent(Number(evaluation.f1), 2) : "—", tone: "accent" },
     ];
   }, [summary, merchants, evaluation]);
 
@@ -204,7 +228,7 @@ function App() {
       incidents: summary.active_incidents,
       merchants: merchants.length,
       transactions: summary.total_transactions,
-      risk: (summary.fraud_rate * 100).toFixed(2),
+      risk: percent(summary.fraud_rate, 2),
     };
   }, [summary, merchants]);
 
@@ -225,6 +249,92 @@ function App() {
       };
     });
   }, [summary]);
+
+  const runIngestion = async (payloadText: string) => {
+    try {
+      const trimmed = payloadText.trim();
+      if (!trimmed) {
+        throw new Error("Paste or upload CSV or JSON rows before processing.");
+      }
+      const parsed = trimmed.startsWith("[")
+        ? JSON.parse(trimmed)
+        : trimmed.split(/\r?\n/).filter(Boolean).slice(1).map((row) => {
+            const values = row.split(",");
+            return {
+              event_id: values[0]?.trim(),
+              merchant_id: values[1]?.trim(),
+              occurred_at: values[2]?.trim(),
+              amount: values[3]?.trim(),
+              currency: values[4]?.trim() || "INR",
+              payment_method: values[5]?.trim() || "card",
+              payment_status: values[6]?.trim() || "captured",
+              customer_reference: values[7]?.trim() || "customer-demo",
+              device_reference: values[8]?.trim() || "device-demo",
+            };
+          });
+      const result = await api.ingest(Array.isArray(parsed) ? parsed : [parsed]);
+      setIngestionResult(result);
+      await loadOverview();
+      setView("dashboard");
+      setError(null);
+    } catch (caughtError) {
+      console.error(caughtError);
+      setError("The ingestion pipeline could not validate and score the submitted data.");
+    }
+  };
+
+  const runSyntheticStream = async (scenario: string) => {
+    try {
+      setError(null);
+      const result = await api.syntheticStream(scenario);
+      setStreamMetrics({
+        events_processed: Number(result.records_accepted ?? 0),
+        events_per_minute: Math.max(5, Number(result.records_accepted ?? 0)),
+        current_fraud_rate: Number(result.risk_summary?.fraud_rate ?? 0),
+        suspicious_events: Number(result.risk_summary?.high_risk ?? 0),
+        active_incidents: Number(result.risk_summary?.merchants_affected ?? 0),
+        processing_latency_ms: Number(result.processing_time_ms ?? 0),
+      });
+      setStreamStatus("running");
+      setIngestionResult(result);
+      await loadOverview();
+    } catch (caughtError) {
+      console.error(caughtError);
+      setError("The synthetic stream could not be generated.");
+    }
+  };
+
+  const runSimulator = async () => {
+    try {
+      setError(null);
+      const event = {
+        event_id: `sim-${Date.now()}`,
+        merchant_id: simulatorInput.merchant,
+        occurred_at: new Date().toISOString(),
+        amount: simulatorInput.amount,
+        currency: "INR",
+        payment_method: "card",
+        payment_status: "captured",
+        customer_reference: `customer-${Date.now()}`,
+        device_reference: `device-${Date.now()}`,
+        metadata: {
+          velocity_1h: Number(simulatorInput.velocity),
+          velocity_24h: Number(simulatorInput.velocity) * 2,
+          baseline_amount: "500.00",
+          current_amount: simulatorInput.amount,
+          current_fraud_rate: simulatorInput.merchantFraudRate,
+          previous_fraud_rate: String(Number(simulatorInput.merchantFraudRate) * 0.45),
+          historical_transaction_count: Number(simulatorInput.deviceHistory),
+          historical_fraud_count: Math.max(1, Math.round(Number(simulatorInput.merchantFraudRate) * 10)),
+        },
+      };
+      const result = await api.riskScore(event);
+      setSimulatorResult(result);
+    } catch (caughtError) {
+      console.error(caughtError);
+      setError("The risk simulator could not calculate the score.");
+    }
+  };
 
   const initiateAction = async (action: "verify" | "dismiss" | "resolve", notes: string) => {
     if (!selectedIncidentId) return;
@@ -388,6 +498,127 @@ function App() {
 
         {error && <div className="error-banner">{error}</div>}
 
+        {view === "ingestion" && (
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Data Ingestion</h3>
+              <div className="toolbar">
+                <button type="button" className="primary-btn" onClick={() => runIngestion(JSON.stringify([
+                  { event_id: 'ingest-1', merchant_id: 'merchant-005', occurred_at: new Date().toISOString(), amount: '4200', currency: 'INR', payment_method: 'card', payment_status: 'captured', customer_reference: 'customer-demo', device_reference: 'device-demo' }
+                ]))}>Load sample</button>
+              </div>
+            </div>
+            <textarea
+              rows={12}
+              defaultValue={`[
+  {
+    "event_id": "txn-001",
+    "merchant_id": "merchant-005",
+    "occurred_at": "2026-08-31T19:41:00Z",
+    "amount": "4200.00",
+    "currency": "INR",
+    "payment_method": "card",
+    "payment_status": "captured",
+    "customer_reference": "customer-100",
+    "device_reference": "device-900"
+  }
+]`}
+              onBlur={(event) => runIngestion(event.target.value)}
+            />
+            {ingestionResult && (
+              <div className="system-card">
+                <div className="key-value-row"><span>Records received</span><strong>{String(ingestionResult.records_received ?? 0)}</strong></div>
+                <div className="key-value-row"><span>Records accepted</span><strong>{String(ingestionResult.records_accepted ?? 0)}</strong></div>
+                <div className="key-value-row"><span>Records rejected</span><strong>{String(ingestionResult.records_rejected ?? 0)}</strong></div>
+                <div className="key-value-row"><span>Merchants detected</span><strong>{String(ingestionResult.merchants_detected ?? 0)}</strong></div>
+                <div className="key-value-row"><span>Processing time</span><strong>{String(ingestionResult.processing_time_ms ?? 0)} ms</strong></div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {view === "stream" && (
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Synthetic Demo Stream</h3>
+              <div className="toolbar">
+                <select value={streamScenario} onChange={(event) => setStreamScenario(event.target.value)}>
+                  <option value="NORMAL">NORMAL</option>
+                  <option value="FRAUD SPIKE">FRAUD SPIKE</option>
+                  <option value="HIGH VELOCITY">HIGH VELOCITY</option>
+                  <option value="COLD START">COLD START</option>
+                  <option value="FALSE POSITIVE / BORDERLINE">FALSE POSITIVE / BORDERLINE</option>
+                </select>
+                <button type="button" className="primary-btn" onClick={() => void runSyntheticStream(streamScenario)}>Start</button>
+                <button type="button" className="secondary-btn" onClick={() => setStreamStatus("paused")}>Pause</button>
+                <button type="button" className="secondary-btn" onClick={() => setStreamStatus("idle")}>Stop</button>
+              </div>
+            </div>
+            <div className="stats-grid compact">
+              <div className="metric-card accent"><span>Events processed</span><strong>{String(streamMetrics.events_processed)}</strong></div>
+              <div className="metric-card"><span>Events/min</span><strong>{String(streamMetrics.events_per_minute)}</strong></div>
+              <div className="metric-card"><span>Current fraud rate</span><strong>{percent(Number(streamMetrics.current_fraud_rate ?? 0), 2)}</strong></div>
+              <div className="metric-card"><span>Suspicious events</span><strong>{String(streamMetrics.suspicious_events)}</strong></div>
+              <div className="metric-card"><span>Active incidents</span><strong>{String(streamMetrics.active_incidents)}</strong></div>
+              <div className="metric-card"><span>Latency</span><strong>{String(streamMetrics.processing_latency_ms)} ms</strong></div>
+            </div>
+            <div className="empty-state">Status: {streamStatus.toUpperCase()} · Synthetic Demo Stream · actual risk engine output is used.</div>
+          </section>
+        )}
+
+        {view === "batch" && (
+          <section className="panel">
+            <div className="panel-header">
+              <h3>Batch Risk Analyzer</h3>
+            </div>
+            <textarea rows={8} defaultValue={`[
+  {"event_id":"batch-001","merchant_id":"merchant-005","occurred_at":"2026-08-31T18:00:00Z","amount":"5200","currency":"INR","payment_method":"card","payment_status":"captured"},
+  {"event_id":"batch-002","merchant_id":"merchant-002","occurred_at":"2026-08-31T18:05:00Z","amount":"1100","currency":"INR","payment_method":"upi","payment_status":"captured"}
+]`} onBlur={(event) => {
+                void runIngestion(event.target.value);
+              }} />
+            {ingestionResult && "risk_summary" in ingestionResult && (
+              <div className="system-card">
+                <div className="key-value-row"><span>Records</span><strong>{String((ingestionResult as any).risk_summary?.records_processed ?? 0)}</strong></div>
+                <div className="key-value-row"><span>High risk</span><strong>{String((ingestionResult as any).risk_summary?.high_risk ?? 0)}</strong></div>
+                <div className="key-value-row"><span>Medium risk</span><strong>{String((ingestionResult as any).risk_summary?.medium_risk ?? 0)}</strong></div>
+                <div className="key-value-row"><span>Low risk</span><strong>{String((ingestionResult as any).risk_summary?.low_risk ?? 0)}</strong></div>
+                <div className="key-value-row"><span>Average risk</span><strong>{percent(Number((ingestionResult as any).risk_summary?.average_risk ?? 0), 2)}</strong></div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {view === "simulator" && (
+          <section className="panel">
+            <div className="panel-header"><h3>What-If Risk Simulator</h3></div>
+            <div className="two-column">
+              <div className="system-card">
+                <input value={simulatorInput.merchant} onChange={(event) => setSimulatorInput((current) => ({ ...current, merchant: event.target.value }))} />
+                <input value={simulatorInput.amount} onChange={(event) => setSimulatorInput((current) => ({ ...current, amount: event.target.value }))} />
+                <input value={simulatorInput.velocity} onChange={(event) => setSimulatorInput((current) => ({ ...current, velocity: event.target.value }))} />
+                <input value={simulatorInput.deviceHistory} onChange={(event) => setSimulatorInput((current) => ({ ...current, deviceHistory: event.target.value }))} />
+                <input value={simulatorInput.transactionTime} onChange={(event) => setSimulatorInput((current) => ({ ...current, transactionTime: event.target.value }))} />
+                <input value={simulatorInput.merchantFraudRate} onChange={(event) => setSimulatorInput((current) => ({ ...current, merchantFraudRate: event.target.value }))} />
+                <button type="button" className="primary-btn" onClick={() => void runSimulator()}>Run simulation</button>
+              </div>
+              <div className="system-card">
+                {simulatorResult ? (
+                  <>
+                    <div className="key-value-row"><span>Risk score</span><strong>{String(simulatorResult.risk_score ?? 0)}</strong></div>
+                    <div className="key-value-row"><span>Risk level</span><strong>{String(simulatorResult.risk_level ?? "unknown")}</strong></div>
+                    <div className="key-value-row"><span>Decision</span><strong>{String(simulatorResult.decision ?? "review")}</strong></div>
+                    <div className="key-value-row"><span>Decision path</span><strong>{String(simulatorResult.decision_path ?? "ML_MODEL")}</strong></div>
+                    <div className="key-value-row"><span>Reasons</span><strong>{Array.isArray(simulatorResult.reasons) ? simulatorResult.reasons.join(", ") : "NONE"}</strong></div>
+                  </>
+                ) : (
+                  <div className="empty-state">Enter a scenario and run the simulation to view the score.</div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
         {view === "dashboard" && summary && (
           <>
             <section className="stats-grid">
@@ -456,7 +687,7 @@ function App() {
                         <small>{merchant.total_transactions} txns</small>
                       </div>
                       <div className="merchant-risk">
-                        <span>{(merchant.fraud_rate * 100).toFixed(1)}%</span>
+                        <span>{percent(merchant.fraud_rate, 1)}</span>
                         <small>{merchant.fraudulent_transactions} fraud</small>
                       </div>
                     </button>
@@ -754,9 +985,9 @@ function App() {
               <h3>Evaluation center</h3>
             </div>
             <div className="stats-grid compact">
-              <div className="metric-card accent"><span>Precision</span><strong>{evaluation.precision}%</strong></div>
-              <div className="metric-card"><span>Recall</span><strong>{evaluation.recall}%</strong></div>
-              <div className="metric-card"><span>F1</span><strong>{evaluation.f1}%</strong></div>
+              <div className="metric-card accent"><span>Precision</span><strong>{percent(evaluation.precision, 2)}</strong></div>
+              <div className="metric-card"><span>Recall</span><strong>{percent(evaluation.recall, 2)}</strong></div>
+              <div className="metric-card"><span>F1</span><strong>{percent(evaluation.f1, 2)}</strong></div>
               <div className="metric-card warning"><span>False-positive cost</span><strong>{evaluation.false_positive_cost}</strong></div>
               <div className="metric-card"><span>TP</span><strong>{evaluation.tp}</strong></div>
               <div className="metric-card"><span>FP</span><strong>{evaluation.fp}</strong></div>
