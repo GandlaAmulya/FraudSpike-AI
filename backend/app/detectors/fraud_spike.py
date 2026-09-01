@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -184,6 +184,137 @@ class MerchantFraudSpikeDetector:
                 )
 
         return incidents
+
+
+def _merchant_window_key(merchant_id: str, occurred_at: datetime) -> tuple[str, str]:
+    return merchant_id, occurred_at.date().isoformat()
+
+
+def _merchant_window_labels(events: list[PaymentEvent]) -> dict[tuple[str, str], int]:
+    grouped: dict[tuple[str, str], list[PaymentEvent]] = defaultdict(list)
+    for event in events:
+        grouped[_merchant_window_key(event.merchant_id, event.occurred_at)].append(event)
+
+    labels: dict[tuple[str, str], int] = {}
+    for (merchant_id, window_day), window_events in grouped.items():
+        fraud_count = sum(1 for event in window_events if event.fraud_label is FraudLabel.FRAUDULENT)
+        if len(window_events) >= 10 and fraud_count >= 3 and (Decimal(fraud_count) / Decimal(len(window_events))) >= Decimal("0.10"):
+            labels[(merchant_id, window_day)] = 1
+        else:
+            labels[(merchant_id, window_day)] = 0
+    return labels
+
+
+def _threshold_candidates() -> list[Decimal]:
+    return [Decimal("1.5"), Decimal("2.0"), Decimal("2.5"), Decimal("3.0"), Decimal("4.0")]
+
+
+def evaluate_merchant_spike_detector(
+    split: dict[str, list[PaymentEvent]],
+    *,
+    detector_version: str = "merchant-fraud-spike-v1",
+) -> dict[str, Any]:
+    """Evaluate the merchant-window detector with strict train/validation/test separation.
+
+    - train: used to build merchant baselines and detector configuration
+    - validation: used for threshold selection only
+    - test: used only for the final held-out evaluation
+    """
+    train_events = list(split.get("train", []))
+    validation_events = list(split.get("validation", []))
+    test_events = list(split.get("test", []))
+
+    if not train_events and not validation_events and not test_events:
+        raise ValueError("split must include at least one event across train, validation, and test")
+
+    threshold = Decimal("2.5")
+    best_f1 = Decimal("-1")
+    best_fp = None
+
+    if validation_events:
+        candidate_labels = _merchant_window_labels(validation_events)
+        for candidate in _threshold_candidates():
+            detector = MerchantFraudSpikeDetector(
+                threshold_multiplier=candidate,
+                detector_version=f"{detector_version}-t{candidate}",
+            )
+            validation_predictions = {
+                _merchant_window_key(event.merchant_id, event.occurred_at)
+                for incident in detector.detect(validation_events)
+                for event in validation_events
+                if event.merchant_id == incident.merchant_id and event.occurred_at.date().isoformat() == incident.analysis_window.start_at.date().isoformat()
+            }
+            actual = [candidate_labels.get(key, 0) for key in sorted(candidate_labels)]
+            predicted = [1 if key in validation_predictions else 0 for key in sorted(candidate_labels)]
+            true_positives = sum(1 for actual_value, predicted_value in zip(actual, predicted) if actual_value == 1 and predicted_value == 1)
+            false_positives = sum(1 for actual_value, predicted_value in zip(actual, predicted) if actual_value == 0 and predicted_value == 1)
+            false_negatives = sum(1 for actual_value, predicted_value in zip(actual, predicted) if actual_value == 1 and predicted_value == 0)
+            precision_denominator = true_positives + false_positives
+            recall_denominator = true_positives + false_negatives
+            precision = Decimal(true_positives) / Decimal(precision_denominator) if precision_denominator else Decimal("0")
+            recall = Decimal(true_positives) / Decimal(recall_denominator) if recall_denominator else Decimal("0")
+            f1 = Decimal("0") if (precision + recall) == 0 else (Decimal(2) * precision * recall) / (precision + recall)
+            if f1 > best_f1 or (f1 == best_f1 and (best_fp is None or false_positives < best_fp)):
+                threshold = candidate
+                best_f1 = f1
+                best_fp = false_positives
+
+    final_detector = MerchantFraudSpikeDetector(
+        threshold_multiplier=threshold,
+        detector_version=detector_version,
+    )
+
+    final_incidents = final_detector.detect(train_events + validation_events + test_events)
+    test_windows = _merchant_window_labels(test_events)
+    predicted_windows = {
+        _merchant_window_key(event.merchant_id, event.occurred_at)
+        for incident in final_incidents
+        for event in test_events
+        if event.merchant_id == incident.merchant_id and event.occurred_at.date().isoformat() == incident.analysis_window.start_at.date().isoformat()
+    }
+    ordered_keys = sorted(test_windows)
+    actual_labels = [test_windows.get(key, 0) for key in ordered_keys]
+    predicted_labels = [1 if key in predicted_windows else 0 for key in ordered_keys]
+
+    tp = sum(1 for actual_value, predicted_value in zip(actual_labels, predicted_labels) if actual_value == 1 and predicted_value == 1)
+    fp = sum(1 for actual_value, predicted_value in zip(actual_labels, predicted_labels) if actual_value == 0 and predicted_value == 1)
+    tn = sum(1 for actual_value, predicted_value in zip(actual_labels, predicted_labels) if actual_value == 0 and predicted_value == 0)
+    fn = sum(1 for actual_value, predicted_value in zip(actual_labels, predicted_labels) if actual_value == 1 and predicted_value == 0)
+    precision_denominator = tp + fp
+    recall_denominator = tp + fn
+    precision = Decimal(tp) / Decimal(precision_denominator) if precision_denominator else Decimal("0")
+    recall = Decimal(tp) / Decimal(recall_denominator) if recall_denominator else Decimal("0")
+    f1_score = Decimal("0") if (precision + recall) == 0 else (Decimal(2) * precision * recall) / (precision + recall)
+    false_positive_cost = Decimal(fp) * Decimal("125.00")
+
+    predictions = [
+        {"merchant_id": merchant_id, "window_day": window_day, "predicted": int((merchant_id, window_day) in predicted_windows)}
+        for merchant_id, window_day in ordered_keys
+    ]
+
+    return {
+        "prediction_unit": "merchant_window",
+        "threshold_policy": "validation-selected",
+        "threshold": threshold,
+        "train_event_count": len(train_events),
+        "validation_event_count": len(validation_events),
+        "test_event_count": len(test_events),
+        "test_sample_count": len(actual_labels),
+        "test_prediction_count": len(predictions),
+        "predictions": predictions,
+        "actual_labels": actual_labels,
+        "predicted_labels": predicted_labels,
+        "tp": tp,
+        "fp": fp,
+        "tn": tn,
+        "fn": fn,
+        "precision": precision.quantize(Decimal("0.000001")),
+        "recall": recall.quantize(Decimal("0.000001")),
+        "f1": f1_score.quantize(Decimal("0.000001")),
+        "false_positive_cost": false_positive_cost.quantize(Decimal("0.01")),
+        "detector_version": detector_version,
+        "notes": "Train and validation define detector setup; test labels remain untouched until the final holdout evaluation.",
+    }
 
 
 def detect_merchant_spikes(events: list[PaymentEvent]) -> list[FraudSpikeIncident]:

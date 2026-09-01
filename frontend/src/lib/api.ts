@@ -22,6 +22,46 @@ export async function apiFetch<T>(
   return response.json() as Promise<T>;
 }
 
+export type IngestionInputRow = Record<string, unknown>;
+export type IngestionResult = {
+  accepted: number;
+  rejected: number;
+  "duplicate/skipped": number;
+  incidents_created: number;
+  records_received: number;
+  records_accepted: number;
+  records_rejected: number;
+  duplicates: number;
+  merchants_detected: number;
+  processing_time_ms: number;
+  risk_summary: {
+    records_processed: number;
+    high_risk: number;
+    medium_risk: number;
+    low_risk: number;
+    fraud_rate: number;
+    average_risk: number;
+    merchants_affected: number;
+    top_risk_merchants: Array<{ merchant_id: string; average_risk: number }>;
+  };
+  rejected_rows: Array<{
+    index: number;
+    error: string;
+    payload: Record<string, unknown>;
+  }>;
+};
+
+export type RiskScoreInput = Record<string, unknown>;
+export type RiskScoreResult = {
+  risk_score: number;
+  risk_level: string;
+  decision: string;
+  decision_path: string;
+  reasons: string[];
+  confidence: number;
+  evidence: Record<string, unknown>;
+};
+
 export const api = {
   health: () => apiFetch<HealthResponse>("/api/health"),
   summary: () => apiFetch<DashboardSummary>("/api/dashboard/summary"),
@@ -34,6 +74,18 @@ export const api = {
   verification: (incidentId: string) => apiFetch<VerificationRecord>(`/api/incidents/${incidentId}/verification`),
   audit: (incidentId: string) => apiFetch<AuditEventRecord[]>(`/api/incidents/${incidentId}/audit`),
   evaluation: () => apiFetch<EvaluationRecord>("/api/evaluation"),
+  ingest: (rows: IngestionInputRow[]) => apiFetch<IngestionResult>("/api/ingest", {
+    method: "POST",
+    body: JSON.stringify({ rows }),
+  }),
+  syntheticStream: (scenario: string) => apiFetch<IngestionResult>("/api/stream/synthetic", {
+    method: "POST",
+    body: JSON.stringify({ scenario }),
+  }),
+  riskScore: (event: RiskScoreInput) => apiFetch<RiskScoreResult>("/api/risk/score", {
+    method: "POST",
+    body: JSON.stringify(event),
+  }),
   razorpay: () => apiFetch<RazorpayStatus>("/api/demo/razorpay"),
   demoSeed: () => apiFetch<{ status: string; total_events: number; merchants: string[] }>("/api/demo/seed", {
     method: "POST",

@@ -240,6 +240,14 @@ class Investigation(ContractModel):
         default=None,
         max_length=5_000,
     )
+    assessment: str | None = Field(default=None, max_length=2_000)
+    risk_level: str | None = Field(default=None, max_length=32)
+    findings: list[str] = Field(default_factory=list)
+    evidence_references: list[str] = Field(default_factory=list)
+    reasoning_summary: str | None = Field(default=None, max_length=5_000)
+    recommended_action: str | None = Field(default=None, max_length=64)
+    limitations: list[str] = Field(default_factory=list)
+    generated_at: UtcDateTime | None = None
 
     @model_validator(mode="after")
     def end_must_follow_start(self) -> Investigation:

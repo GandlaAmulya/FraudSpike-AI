@@ -2,7 +2,9 @@ from decimal import Decimal
 
 import pytest
 
+from app.detectors.fraud_spike import evaluate_merchant_spike_detector
 from app.evaluation import evaluate_held_out_predictions
+from app.services.dataset import build_demo_dataset, split_events_by_period
 
 
 def test_evaluate_held_out_predictions_returns_confusion_matrix_and_metrics() -> None:
@@ -51,3 +53,18 @@ def test_evaluate_held_out_predictions_rejects_invalid_binary_inputs() -> None:
             held_out_test_set_id="held-out-v1",
             detector_version="detector-v1",
         )
+
+
+def test_merchant_spike_evaluation_uses_explicit_train_validation_and_test_split() -> None:
+    split = split_events_by_period(build_demo_dataset())
+
+    result = evaluate_merchant_spike_detector(split)
+
+    assert result["prediction_unit"] == "merchant_window"
+    assert result["threshold_policy"] == "validation-selected"
+    assert result["train_event_count"] == len(split["train"])
+    assert result["validation_event_count"] == len(split["validation"])
+    assert result["test_event_count"] == len(split["test"])
+    assert result["test_prediction_count"] == len(result["predictions"]) == result["test_sample_count"]
+    assert result["test_event_count"] > 0
+    assert result["threshold"] > 0

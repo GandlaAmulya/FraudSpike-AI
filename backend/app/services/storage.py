@@ -17,9 +17,18 @@ from app.schemas import (
     AuditEvent,
     AuditEventType,
     FraudSpikeIncident,
+    IncidentStatus,
     Investigation,
     PaymentEvent,
 )
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 async def persist_payment_events(session: AsyncSession, events: list[PaymentEvent]) -> None:
@@ -52,6 +61,46 @@ async def persist_payment_events(session: AsyncSession, events: list[PaymentEven
     await session.commit()
 
 
+def _incident_status_from_row(row: FraudSpikeIncidentModel) -> FraudSpikeIncident:
+    return FraudSpikeIncident(
+        incident_id=row.incident_id,
+        merchant_id=row.merchant_id,
+        detected_at=_as_utc(row.detected_at),
+        analysis_window={
+            "start_at": _as_utc(row.analysis_window_start),
+            "end_at": _as_utc(row.analysis_window_end),
+        },
+        baseline_fraud_rate=row.baseline_fraud_rate,
+        observed_fraud_rate=row.observed_fraud_rate,
+        deviation=row.deviation,
+        affected_transaction_count=row.affected_transaction_count,
+        severity=row.severity,
+        status=row.status,
+        detector_version=row.detector_version,
+        confidence=row.confidence,
+        risk_score=row.risk_score,
+        evidence=[
+            item
+            for item in json.loads(row.evidence_json or "[]")
+        ],
+        suspicious_event_ids=json.loads(row.suspicious_event_ids_json or "[]"),
+        investigation_notes=json.loads(row.investigation_notes_json or "[]"),
+        resolution=row.resolution,
+        created_at=_as_utc(row.created_at),
+        updated_at=_as_utc(row.updated_at),
+    )
+
+
+async def get_incident_by_id(session: AsyncSession, incident_id: str) -> FraudSpikeIncident | None:
+    existing = await session.execute(
+        select(FraudSpikeIncidentModel).where(FraudSpikeIncidentModel.incident_id == incident_id)
+    )
+    row = existing.scalar_one_or_none()
+    if row is None:
+        return None
+    return _incident_status_from_row(row)
+
+
 async def persist_incident(session: AsyncSession, incident: FraudSpikeIncident) -> None:
     existing = await session.execute(
         select(FraudSpikeIncidentModel).where(FraudSpikeIncidentModel.incident_id == incident.incident_id)
@@ -78,9 +127,101 @@ async def persist_incident(session: AsyncSession, incident: FraudSpikeIncident) 
     row.suspicious_event_ids_json = json.dumps(incident.suspicious_event_ids)
     row.investigation_notes_json = json.dumps(incident.investigation_notes)
     row.resolution = incident.resolution
+    row.version = (row.version or 0) + 1
     row.created_at = incident.created_at or incident.detected_at
     row.updated_at = incident.updated_at or incident.detected_at
     await session.commit()
+
+
+VALID_INCIDENT_TRANSITIONS: dict[IncidentStatus, set[IncidentStatus]] = {
+    IncidentStatus.DETECTED: {
+        IncidentStatus.INVESTIGATING,
+        IncidentStatus.VERIFIED,
+        IncidentStatus.DISMISSED,
+    },
+    IncidentStatus.INVESTIGATING: {
+        IncidentStatus.VERIFIED,
+        IncidentStatus.DISMISSED,
+        IncidentStatus.RESOLVED,
+    },
+    IncidentStatus.VERIFIED: {
+        IncidentStatus.RESOLVED,
+    },
+    IncidentStatus.DISMISSED: set(),
+    IncidentStatus.RESOLVED: set(),
+}
+
+
+INCIDENT_ACTION_STATUS_MAP: dict[str, IncidentStatus] = {
+    "confirm": IncidentStatus.VERIFIED,
+    "verify": IncidentStatus.VERIFIED,
+    "dismiss": IncidentStatus.DISMISSED,
+    "resolve": IncidentStatus.RESOLVED,
+    "investigate": IncidentStatus.INVESTIGATING,
+    "investigating": IncidentStatus.INVESTIGATING,
+}
+
+
+async def transition_incident_status(
+    session: AsyncSession,
+    *,
+    incident_id: str,
+    action: str,
+    actor: str = "analyst",
+    reason: str | None = None,
+) -> FraudSpikeIncident:
+    row = await session.execute(
+        select(FraudSpikeIncidentModel).where(FraudSpikeIncidentModel.incident_id == incident_id)
+    )
+    current_row = row.scalar_one_or_none()
+    if current_row is None:
+        raise ValueError("Incident not found")
+
+    current_status = IncidentStatus(current_row.status)
+    target_status = INCIDENT_ACTION_STATUS_MAP.get(action.lower())
+    if target_status is None:
+        raise ValueError(f"Unsupported incident action: {action}")
+
+    if current_status == target_status:
+        current_row.updated_at = datetime.now(UTC)
+        current_row.version = (current_row.version or 0) + 1
+        return _incident_status_from_row(current_row)
+
+    allowed = VALID_INCIDENT_TRANSITIONS.get(current_status, set())
+    if target_status not in allowed:
+        raise ValueError(
+            f"Invalid incident transition: {current_status.value} -> {target_status.value}"
+        )
+
+    previous_status = current_status
+    current_row.status = target_status.value
+    current_row.updated_at = datetime.now(UTC)
+    current_row.version = (current_row.version or 0) + 1
+    incident = _incident_status_from_row(current_row)
+    incident.created_at = _as_utc(current_row.created_at) or _as_utc(current_row.detected_at)
+    incident.updated_at = _as_utc(current_row.updated_at) or _as_utc(current_row.detected_at)
+
+    await persist_audit_event(
+        session,
+        AuditEvent(
+            event_id=f"audit-{incident_id}-{action.lower()}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}",
+            occurred_at=datetime.now(UTC),
+            event_type=AuditEventType.RESPONSE,
+            actor=actor,
+            incident_id=incident_id,
+            action=action.lower(),
+            details={
+                "merchant_id": current_row.merchant_id,
+                "previous_status": previous_status.value,
+                "new_status": target_status.value,
+                "action": action.lower(),
+                "actor": actor,
+                "reason": reason or "",
+            },
+        ),
+    )
+    await session.commit()
+    return incident
 
 
 async def persist_investigation(session: AsyncSession, investigation: Investigation) -> None:
@@ -102,6 +243,14 @@ async def persist_investigation(session: AsyncSession, investigation: Investigat
     row.confidence = investigation.confidence
     row.explanation = investigation.explanation
     row.recommended_response = investigation.recommended_defensive_response
+    row.assessment = investigation.assessment
+    row.risk_level = investigation.risk_level
+    row.findings_json = json.dumps(investigation.findings)
+    row.evidence_references_json = json.dumps(investigation.evidence_references)
+    row.reasoning_summary = investigation.reasoning_summary
+    row.recommended_action = investigation.recommended_action
+    row.limitations_json = json.dumps(investigation.limitations)
+    row.generated_at = investigation.generated_at
     await session.commit()
 
 
@@ -166,23 +315,4 @@ async def get_dashboard_summary(session: AsyncSession) -> dict[str, object]:
 
 async def list_incidents(session: AsyncSession) -> list[FraudSpikeIncident]:
     rows = (await session.execute(select(FraudSpikeIncidentModel))).scalars().all()
-    return [
-        FraudSpikeIncident(
-            incident_id=row.incident_id,
-            merchant_id=row.merchant_id,
-            detected_at=row.detected_at,
-            analysis_window={
-                "start_at": row.analysis_window_start,
-                "end_at": row.analysis_window_end,
-            },
-            baseline_fraud_rate=row.baseline_fraud_rate,
-            observed_fraud_rate=row.observed_fraud_rate,
-            deviation=row.deviation,
-            affected_transaction_count=row.affected_transaction_count,
-            severity=row.severity,
-            status=row.status,
-            detector_version=row.detector_version,
-            confidence=row.confidence,
-        )
-        for row in rows
-    ]
+    return [_incident_status_from_row(row) for row in rows]

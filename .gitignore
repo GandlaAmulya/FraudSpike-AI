@@ -6,6 +6,11 @@
 *~
 Thumbs.db
 
+# Local workspace artifacts
+.replit
+.agents/
+attached_assets/
+
 # Environment files
 .env
 *.env.local
@@ -45,11 +50,9 @@ tmp/
 coverage/
 *.egg-info/
 
-# Local runtime output only when not part of a committed demo dataset
+# Local runtime output
 # Keep legitimate demo data and database files in data/.
-
-# Local SQLite runtime database
+data/fraudspike.db
 backend/data/fraudspike.db
 
-# Local SQLite runtime database
-backend/data/fraudspike.db
+data/fraudspike.db

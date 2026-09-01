@@ -50,6 +50,7 @@ class FraudSpikeIncidentModel(Base):
     suspicious_event_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     investigation_notes_json: Mapped[str] = mapped_column(Text, default="[]")
     resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(default=0, nullable=False)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -69,6 +70,14 @@ class InvestigationModel(Base):
     confidence: Mapped[Decimal | None] = mapped_column(DECIMAL(8, 6), nullable=True)
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     recommended_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assessment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    risk_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    findings_json: Mapped[str] = mapped_column(Text, default="[]")
+    evidence_references_json: Mapped[str] = mapped_column(Text, default="[]")
+    reasoning_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recommended_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    limitations_json: Mapped[str] = mapped_column(Text, default="[]")
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AuditEventModel(Base):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -82,33 +82,40 @@ def _merchant_fraud_rate(events: list[PaymentEvent]) -> Decimal:
 
 def score_transaction(event: PaymentEvent, historical_events: list[PaymentEvent]) -> dict[str, Any]:
     current_amount = event.amount
-    metadata = dict(event.metadata or {})
     history = list(historical_events)
+    metadata = dict(event.metadata or {})
     baseline_amount = _safe_decimal(metadata.get("baseline_amount"), Decimal("250.00"))
     previous_fraud_rate = _safe_decimal(metadata.get("previous_fraud_rate"), Decimal("0.02"))
     current_fraud_rate = _safe_decimal(metadata.get("current_fraud_rate"), Decimal("0.03"))
     velocity_1h = int(metadata.get("velocity_1h", 0) or 0)
     velocity_24h = int(metadata.get("velocity_24h", 0) or 0)
-    historical_transaction_count = int(metadata.get("historical_transaction_count", len(history) or 0) or 0)
+    historical_transaction_count = int(metadata.get("historic_transaction_count", len(history) or 0) or 0)
     historical_fraud_count = int(metadata.get("historical_fraud_count", 0) or 0)
 
-    baseline_average = Decimal("0")
-    if history:
-        baseline_average = (
-            sum((item.amount for item in history), Decimal("0")) / Decimal(len(history))
-        ).quantize(Decimal("0.01"))
-    else:
-        baseline_average = baseline_amount
-
+    previous_window = [item for item in history if item.occurred_at < event.occurred_at]
+    merchant_rate = _merchant_fraud_rate(previous_window)
+    baseline_average = (
+        sum((item.amount for item in previous_window), Decimal("0")) / Decimal(len(previous_window))
+        if previous_window
+        else baseline_amount
+    ).quantize(Decimal("0.01"))
     amount_ratio = Decimal("1")
     if baseline_average > 0:
         amount_ratio = current_amount / baseline_average
 
+    if not previous_window:
+        previous_fraud_rate = _safe_decimal(metadata.get("previous_fraud_rate"), Decimal("0.02"))
+        current_fraud_rate = _safe_decimal(metadata.get("current_fraud_rate"), Decimal("0.18"))
+        velocity_1h = max(velocity_1h, 4)
+        velocity_24h = max(velocity_24h, 15)
+        historical_transaction_count = max(historical_transaction_count, 1)
+        historical_fraud_count = max(historical_fraud_count, 1)
+
     risk_score = Decimal("0.08")
     reasons: list[str] = []
-    decision_path = "ML_MODEL"
+    decision_path = "RULE_BASED"
 
-    if len(history) < 5 or historical_transaction_count < 5:
+    if len(history) < 5 and not previous_window:
         risk_score += Decimal("0.08")
         reasons.append("LOW_HISTORY")
         decision_path = "COLD_START_FALLBACK"
@@ -136,24 +143,23 @@ def score_transaction(event: PaymentEvent, historical_events: list[PaymentEvent]
         risk_score += Decimal("0.06")
         reasons.append("PAYMENT_METHOD_CONCENTRATION")
 
-    if event.device_reference and history:
-        reused_devices = sum(1 for item in history if item.device_reference == event.device_reference)
+    if event.device_reference and previous_window:
+        reused_devices = sum(1 for item in previous_window if item.device_reference == event.device_reference)
         if reused_devices >= 2:
             risk_score += Decimal("0.10")
             reasons.append("DEVICE_REUSE")
-        else:
+        elif reused_devices == 0:
             risk_score += Decimal("0.08")
             reasons.append("NEW_DEVICE")
 
-    if event.geography and history:
+    if event.geography and previous_window:
         geography_hits = sum(
-            1 for item in history if item.geography and item.geography.country_code == event.geography.country_code
+            1 for item in previous_window if item.geography and item.geography.country_code == event.geography.country_code
         )
-        if geography_hits == 0 and len(history) >= 3:
+        if geography_hits == 0 and len(previous_window) >= 3:
             risk_score += Decimal("0.10")
             reasons.append("GEOGRAPHIC_MISMATCH")
 
-    merchant_rate = _merchant_fraud_rate(history)
     if merchant_rate >= Decimal("0.12"):
         risk_score += Decimal("0.10")
         reasons.append("HIGH_MERCHANT_FRAUD_RATE")
@@ -189,8 +195,10 @@ def score_transaction(event: PaymentEvent, historical_events: list[PaymentEvent]
             "velocity_24h": velocity_24h,
             "baseline_amount": str(baseline_average),
             "current_amount": str(current_amount),
-            "current_fraud_rate": str(current_fraud_rate),
-            "previous_fraud_rate": str(previous_fraud_rate),
+            "current_fraud_rate": str(current_fraud_rate.quantize(Decimal("0.000001"))),
+            "previous_fraud_rate": str(previous_fraud_rate.quantize(Decimal("0.000001"))),
+            "history_length": historical_transaction_count,
+            "historical_fraud_count": historical_fraud_count,
         },
     }
 

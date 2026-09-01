@@ -51,7 +51,7 @@ def test_score_transaction_for_high_velocity_is_high_risk() -> None:
     assert result["risk_score"] >= 0.6
     assert result["risk_level"] in {"high", "critical"}
     assert "HIGH_TRANSACTION_VELOCITY" in result["reasons"]
-    assert result["decision_path"] == "ML_MODEL"
+    assert result["decision_path"] == "RULE_BASED"
 
 
 def test_score_transaction_uses_cold_start_fallback_for_low_history() -> None:

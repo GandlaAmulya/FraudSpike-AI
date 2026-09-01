@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from app.db.database import session_factory
-from app.detectors.fraud_spike import detect_merchant_spikes
+from app.detectors.fraud_spike import detect_merchant_spikes, evaluate_merchant_spike_detector
 from app.evaluation import evaluate_held_out_predictions
 from app.integrations.razorpay import get_razorpay_status
 from app.models import AuditEventModel, FraudSpikeIncidentModel, InvestigationModel, PaymentEventModel
@@ -28,11 +28,13 @@ from app.services.investigation import build_investigation_for_incident, verify_
 from app.services.risk_engine import analyze_batch, score_transaction
 from app.services.storage import (
     get_dashboard_summary,
+    get_incident_by_id,
     list_incidents,
     persist_audit_event,
     persist_incident,
     persist_investigation,
     persist_payment_events,
+    transition_incident_status,
 )
 
 router = APIRouter()
@@ -184,33 +186,22 @@ async def detect_events() -> list[FraudSpikeIncident]:
 @router.get("/evaluation")
 async def evaluation() -> dict[str, object]:
     split = _dataset_key()
-    dataset_events = split["train"] + split["validation"] + split["test"]
-    incidents = detect_merchant_spikes(dataset_events)
-    merchant_predictions = {incident.merchant_id: True for incident in incidents}
-    actual: list[int] = []
-    predicted: list[int] = []
-    for event in split["test"]:
-        actual.append(1 if event.fraud_label is FraudLabel.FRAUDULENT else 0)
-        predicted.append(1 if merchant_predictions.get(event.merchant_id, False) else 0)
-    result = evaluate_held_out_predictions(
-        actual,
-        predicted,
-        dataset_version="synthetic-demo-v1",
-        held_out_test_set_id="test-period-v1",
-        detector_version="merchant-fraud-spike-v1",
-        false_positive_cost_per_case=Decimal("125.00"),
-    )
+    result = evaluate_merchant_spike_detector(split)
     return {
-        "test_set_size": result.test_set_size,
-        "tp": result.true_positives,
-        "tn": result.true_negatives,
-        "fp": result.false_positives,
-        "fn": result.false_negatives,
-        "precision": str(result.precision),
-        "recall": str(result.recall),
-        "f1": str(result.f1),
-        "confusion_matrix": result.confusion_matrix,
-        "false_positive_cost": str(result.false_positive_cost),
+        "prediction_unit": result["prediction_unit"],
+        "threshold_policy": result["threshold_policy"],
+        "threshold": str(result["threshold"]),
+        "test_set_size": result["test_sample_count"],
+        "tp": result["tp"],
+        "tn": result["tn"],
+        "fp": result["fp"],
+        "fn": result["fn"],
+        "precision": str(result["precision"]),
+        "recall": str(result["recall"]),
+        "f1": str(result["f1"]),
+        "test_prediction_count": result["test_prediction_count"],
+        "false_positive_cost": str(result["false_positive_cost"]),
+        "notes": result["notes"],
     }
 
 
@@ -284,13 +275,12 @@ async def list_detections() -> list[FraudSpikeIncident]:
 async def create_incident(incident: FraudSpikeIncident) -> FraudSpikeIncident:
     incident.created_at = incident.created_at or incident.detected_at
     incident.updated_at = incident.updated_at or incident.detected_at
+    if incident.created_at.tzinfo is None or incident.created_at.utcoffset() is None:
+        incident.created_at = incident.created_at.replace(tzinfo=UTC)
+    if incident.updated_at.tzinfo is None or incident.updated_at.utcoffset() is None:
+        incident.updated_at = incident.updated_at.replace(tzinfo=UTC)
     async with session_factory() as session:
         await persist_incident(session, incident)
-    await _create_audit_record(
-        incident_id=incident.incident_id,
-        action="incident_created",
-        details={"merchant_id": incident.merchant_id, "severity": incident.severity.value, "risk_score": str(incident.risk_score or incident.observed_fraud_rate)},
-    )
     return incident
 
 
@@ -344,14 +334,15 @@ async def dashboard_metrics() -> dict[str, object]:
 
 
 @router.get("/incidents")
-async def list_incidents() -> list[FraudSpikeIncident]:
-    return _detected_incidents()
+async def list_incidents_route() -> list[FraudSpikeIncident]:
+    async with session_factory() as session:
+        return await list_incidents(session)
 
 
 @router.get("/incidents/{incident_id}")
 async def get_incident(incident_id: str) -> FraudSpikeIncident:
-    incidents = _detected_incidents()
-    incident = next((item for item in incidents if item.incident_id == incident_id), None)
+    async with session_factory() as session:
+        incident = await get_incident_by_id(session, incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
     return incident
@@ -377,27 +368,29 @@ async def investigate_incident(incident_id: str) -> Investigation:
 
 @router.post("/incidents/{incident_id}/action")
 async def incident_action(incident_id: str, action: str = Query(...), notes: str | None = None) -> FraudSpikeIncident:
-    incidents = _detected_incidents()
-    incident = next((item for item in incidents if item.incident_id == incident_id), None)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
-    if notes:
-        incident.investigation_notes.append(notes)
-    if action == "verify":
-        incident.status = IncidentStatus.VERIFIED
-    elif action == "dismiss":
-        incident.status = IncidentStatus.DISMISSED
-    elif action == "resolve":
-        incident.status = IncidentStatus.RESOLVED
-    else:
-        incident.status = IncidentStatus.INVESTIGATING
-    incident.updated_at = datetime.now(UTC)
-    await _create_audit_record(
-        incident_id=incident_id,
-        action=f"incident_{action}",
-        details={"merchant_id": incident.merchant_id, "status": incident.status.value, "notes": notes or ""},
-    )
-    return incident
+    async with session_factory() as session:
+        incident = await get_incident_by_id(session, incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        if notes:
+            incident.investigation_notes = list(incident.investigation_notes or [])
+            incident.investigation_notes.append(notes)
+
+        try:
+            updated = await transition_incident_status(
+                session,
+                incident_id=incident_id,
+                action=action,
+                actor="analyst",
+                reason=notes,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        updated.investigation_notes = list(incident.investigation_notes)
+        await persist_incident(session, updated)
+        return updated
 
 
 @router.get("/incidents/{incident_id}/audit")
