@@ -1,2 +1,0 @@
-- [Empty monorepo dependency setup](empty-monorepo-dependencies.md) — Python package setup can create root metadata; keep backend dependency metadata scoped and recheck generated files.
-- [Contract serialization](contract-serialization.md) — keep JSON values bounded for Pydantic schemas; Decimal values serialize as strings and UTC datetimes as `Z`.

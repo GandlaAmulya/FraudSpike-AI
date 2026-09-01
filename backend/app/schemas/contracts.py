@@ -246,6 +246,7 @@ class Investigation(ContractModel):
     evidence_references: list[str] = Field(default_factory=list)
     reasoning_summary: str | None = Field(default=None, max_length=5_000)
     recommended_action: str | None = Field(default=None, max_length=64)
+    provider: str | None = Field(default=None, max_length=64)
     limitations: list[str] = Field(default_factory=list)
     generated_at: UtcDateTime | None = None
 
