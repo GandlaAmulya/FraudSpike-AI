@@ -911,9 +911,12 @@ function App() {
                 </div>
 
                 <div className="info-card">
-                  <h4>AI investigation</h4>
+                  <h4>Evidence-Grounded AI Investigation</h4>
                   {investigation ? (
                     <>
+                      <div className="key-value-row"><span>AI INVESTIGATION</span><strong>{investigation.provider ?? "Deterministic fallback"}</strong></div>
+                      <div className="key-value-row"><span>Risk Assessment</span><strong>{investigation.risk_level ?? "N/A"}</strong></div>
+                      <div className="key-value-row"><span>Confidence</span><strong>{investigation.confidence ?? "N/A"}</strong></div>
                       <p>{investigation.explanation}</p>
                       <ul>
                         {investigation.hypotheses.map((hypothesis) => (
@@ -921,6 +924,20 @@ function App() {
                         ))}
                       </ul>
                       <div className="key-value-row"><span>Recommended response</span><strong>{investigation.recommended_defensive_response ?? "N/A"}</strong></div>
+                      <div className="key-value-row"><span>Recommended action</span><strong>{investigation.recommended_action ?? "N/A"}</strong></div>
+                      {investigation.ml_assessment && (
+                        <>
+                          <h5>ML ANOMALY ANALYSIS</h5>
+                          <div className="key-value-row"><span>Model</span><strong>{investigation.ml_assessment.model ?? "Local Isolation Forest"}</strong></div>
+                          <div className="key-value-row"><span>Status</span><strong>{investigation.ml_assessment.available ? "Available" : "Insufficient Evidence"}</strong></div>
+                          <div className="key-value-row"><span>Assessment</span><strong>{investigation.ml_assessment.assessment ?? "N/A"}</strong></div>
+                          <div className="key-value-row"><span>Anomaly Score</span><strong>{investigation.ml_assessment.anomaly_score ?? "N/A"}</strong></div>
+                          <div className="key-value-row"><span>Features Used</span><strong>{investigation.ml_assessment.features_used?.join(", ") || "N/A"}</strong></div>
+                          <div className="key-value-row"><span>Evidence References</span><strong>{investigation.ml_assessment.evidence_references?.join(", ") || "N/A"}</strong></div>
+                          <div className="key-value-row"><span>Reasoning</span><strong>{investigation.ml_assessment.reasoning_summary ?? "N/A"}</strong></div>
+                          <div className="key-value-row"><span>Limitations</span><strong>{investigation.ml_assessment.limitations?.join("; ") || "N/A"}</strong></div>
+                        </>
+                      )}
                     </>
                   ) : (
                     <div className="empty-state">Investigation not yet generated.</div>

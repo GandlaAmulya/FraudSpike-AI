@@ -1,33 +1,33 @@
-# FraudSpike AI 5-minute demo script
+# FraudSpike AI demo script
 
-## 0:00–0:30 — Problem
+## 0:00–0:30 — Problem framing
 
-"Merchant fraud spikes are hard to identify quickly, and teams need clear evidence and bounded risk controls rather than opaque automation."
+"Merchant fraud spikes are difficult to distinguish from normal activity, and teams need explainable evidence, structured review, and controlled response actions rather than opaque automation."
 
-## 0:30–1:15 — Dashboard
+## 0:30–1:15 — Dashboard summary
 
-Open the dashboard and show the backend-driven metrics, merchant risk posture, and the synthetic/demo labels.
+Open the dashboard and explain the system’s synthetic data environment, the current merchant risk posture, and the overview metrics. Emphasize that this is a local, demo-safe system.
 
-## 1:15–2:00 — Merchant risk spike
+## 1:15–2:00 — Merchant risk anomaly
 
-Select a merchant with elevated fraud rate and explain the spike pattern and risk distribution.
+Select a merchant or active incident and show the spike pattern. Explain what the baseline and observed fraud rates mean, and why the deviation is interesting to an analyst.
 
-## 2:00–3:00 — Incident investigation
+## 2:00–3:00 — Incident and evidence review
 
-Open a live incident and walk through the merchant, severity, risk score, and detection reason.
+Open a live incident and walk through the risk severity, affected transaction count, and the persisted evidence behind the alert. Keep the explanation grounded in the actual stored signals.
 
-## 3:00–3:45 — Evidence verification
+## 3:00–3:45 — Investigation and verification
 
-Explain the investigation, supported claims, and verification status without making unsupported claims.
+Review the investigation summary and highlight that it is evidence-based. Then explain how the verification layer distinguishes supported claims from unsupported assumptions.
 
-## 3:45–4:20 — Evaluation metrics
+## 3:45–4:20 — Local anomaly support
 
-Point to the held-out metrics, confusion matrix, and false-positive cost.
+Introduce the local anomaly model as a supplemental signal. Clarify that it does not replace the main detector and that insufficient evidence is handled transparently rather than guessed.
 
-## 4:20–4:45 — Response + audit
+## 4:20–4:45 — Human decision and audit trail
 
-Review the bounded response flow and audit trail to show that the workflow is recorded and explainable.
+Show the analyst action workflow and the audit log. Emphasize that the final decision is human-reviewed and traceable.
 
-## 4:45–5:00 — Architecture + impact
+## 4:45–5:00 — Closing message
 
-Close by explaining the product architecture and why the system is honest, evidence-grounded, and operationally defensible.
+Close by saying the project is a credible local fraud investigation platform built around evidence, auditability, and honest operational boundaries.

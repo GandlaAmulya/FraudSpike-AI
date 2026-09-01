@@ -1,33 +1,52 @@
-# FraudSpike AI demo
+# FraudSpike AI demo guide
 
 ## Demo goal
 
-The demonstration is designed to show a full risk workflow in a local environment:
+This demo is designed to show how a fraud operations team can move from a suspicious merchant signal to a reviewable investigation workflow without claiming production-grade automation.
 
-- detect merchant-level fraud spikes
-- surface a risk-scored incident
-- investigate the evidence
-- verify the supported claims
-- apply a bounded response action
-- preserve the audit trail
+## What the demo shows
 
-## Demo flow
+- merchant-level fraud spike detection
+- risk scoring on merchant payment behavior
+- incident creation and lifecycle management
+- evidence-backed investigation summaries
+- review of supported vs unsupported claims
+- local anomaly support as an optional, secondary signal
+- analyst decision recording and audit trail persistence
 
-1. Open the dashboard and confirm the current backend-driven metrics.
-2. Select a merchant to inspect the risk profile.
-3. Open an active incident.
-4. Review the investigation explanation and evidence.
-5. Review verification outcomes and supported vs unsupported claims.
-6. Apply a bounded response such as verify or resolve.
-7. Review the audit trail and evaluation metrics.
+## Recommended flow
 
-## Demo environment
+1. Launch the backend and frontend.
+2. Open the dashboard and inspect the current metrics.
+3. Select a merchant with elevated risk or an active incident.
+4. Review the incident details and the observed fraud-rate deviation.
+5. Open the investigation panel and read the evidence-grounded explanation.
+6. Check verification output to see whether the claims are supported by actual evidence.
+7. Apply a bounded response action and inspect the audit record.
+8. Review the evaluation summary and the held-out methodology description.
 
-- dataset: synthetic
-- environment: demo
-- Razorpay: demo/test mode only
-- investigation mode: deterministic and evidence-grounded unless an optional external model is configured
+## Suggested talking points
+
+- The project is built around explainability and operational honesty.
+- The system does not pretend to be a live payment processor.
+- The core fraud signal is rooted in deterministic detection and evidence.
+- The local ML signal is secondary and transparent.
+- Human review is part of the workflow and the audit trail remains visible.
+
+## Demo environment assumptions
+
+- synthetic dataset only
+- local SQLite persistence
+- no production payment rail access
+- no live external inference endpoint required
+- Razorpay configuration remains demo/test mode unless explicitly added
 
 ## Success criteria
 
-The demo is successful when the product clearly communicates: merchant risk, evidence, verification, bounded response, and auditability without pretending to be a live production system.
+A strong demo outcome is one where the reviewer can clearly see:
+
+- fraud risk is being detected
+- evidence is being used to explain the alert
+- the system is bounded and auditable
+- the final decision remains with the analyst
+- the product is honest about scope and limitations

@@ -1,34 +1,38 @@
-# FraudSpike AI evaluation
+# FraudSpike AI evaluation approach
 
 ## Objective
 
-The evaluation flow measures whether the merchant-level fraud-spike detector identifies risky merchants while preserving operational defensibility and honest cost reporting.
+The evaluation flow is designed to measure whether the merchant-level fraud spike detector performs well on a truly held-out set while keeping the result understandable and trustworthy.
 
-## Held-out evaluation
+## Methodology
 
-Current evaluation values reported by the backend pipeline:
+The project uses a train/validation/test split and evaluates the merchant-window detector only on the held-out test set. The logic is aligned with a standard defensive evaluation workflow:
 
-- TP: 452
-- FP: 820
-- TN: 1092
-- FN: 8
-- Precision: 35.53%
-- Recall: 98.26%
-- F1: 52.19%
-- False-positive cost: ₹102,500
-- Test set size: 2,372
+- train on a historical period
+- select policy using validation data
+- evaluate on a final held-out period
+- report confusion-matrix-based metrics only when those values are calculated
+- keep false-positive cost visible instead of hiding it
 
-## Confusion matrix
+## What is intentionally not claimed
 
-                 PREDICTED
-               SAFE   FRAUD
-ACTUAL SAFE    TN=1092  FP=820
-ACTUAL FRAUD   FN=8    TP=452
+This project does not claim production-ready loss metrics or a live fraud model accuracy. The evaluation is designed to be honest and local.
 
-## Interpretation
-
-High recall is desirable for a fraud defense product because missed fraudulent spikes can be costly. At the same time, the false-positive burden remains meaningful, which is why the project keeps the cost estimate visible and does not hide the operational trade-off.
+The metrics remain nullable until an evaluation actually runs. This keeps the model and domain contracts accurate and avoids fake placeholder values.
 
 ## Product meaning
 
-This is a useful product story for a fraud-risk system because it demonstrates a measured trade-off rather than a misleadingly perfect detector. The product is telling the truth about performance and operational cost.
+The evaluation layer exists to support credible reporting, not to create a false sense of certainty. It shows that the project can describe its performance honestly and make operational trade-offs visible.
+
+## How the UI and API present it
+
+The backend and frontend both surface the evaluation summary in a structured way, including:
+
+- confusion matrix values
+- precision
+- recall
+- F1
+- false-positive cost estimate
+- held-out test-set metadata
+
+The result is an operationally honest view of model performance rather than a polished but misleading metric sheet.

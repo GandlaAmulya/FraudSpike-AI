@@ -5,7 +5,6 @@ from decimal import Decimal
 
 from app.schemas import (
     AnalysisWindow,
-    EvidenceCategory,
     FraudLabel,
     FraudSpikeIncident,
     IncidentSeverity,
@@ -15,7 +14,7 @@ from app.schemas import (
     PaymentStatus,
 )
 from app.services.investigation import build_investigation_for_incident
-from app.services.local_ml import LocalAnomalyModel
+from app.services.local_ml import LocalAnomalyAgent
 
 
 def _incident() -> FraudSpikeIncident:
@@ -52,12 +51,13 @@ def _merchant_events() -> list[PaymentEvent]:
     for index in range(18):
         occurred = start + timedelta(minutes=index * 3)
         label = FraudLabel.FRAUDULENT if index % 3 == 0 else FraudLabel.LEGITIMATE
+        amount = Decimal("1500.00") if label is FraudLabel.FRAUDULENT else Decimal("380.00")
         events.append(
             PaymentEvent(
                 event_id=f"evt-{index}",
                 merchant_id="merchant-ml-001",
                 occurred_at=occurred,
-                amount=Decimal("1200.00") if label is FraudLabel.FRAUDULENT else Decimal("500.00"),
+                amount=amount,
                 currency="INR",
                 payment_method=PaymentMethodType.UPI if index % 2 == 0 else PaymentMethodType.CARD,
                 payment_status=PaymentStatus.CAPTURED,
@@ -72,15 +72,17 @@ def _merchant_events() -> list[PaymentEvent]:
 
 
 def test_local_anomaly_model_scores_real_transaction_history() -> None:
-    model = LocalAnomalyModel()
-    result = model.score(_merchant_events())
+    agent = LocalAnomalyAgent()
+    result = agent.analyze(_merchant_events())
 
-    assert result["status"] == "ok"
-    assert 0 <= result["anomaly_score"] <= 1
-    assert result["model_version"] == "local-anomaly-v1"
+    assert result["available"] is True
+    assert result["model"] == "IsolationForest"
+    assert result["model_version"] == "local-isolation-forest-v1"
+    assert result["assessment"] in {"ANOMALOUS", "NOT_ANOMALOUS"}
+    assert result["evidence_references"]
 
 
-def test_investigation_uses_persisted_evidence_and_mentions_ml_signal() -> None:
+def test_investigation_includes_ml_assessment_and_valid_evidence_references() -> None:
     investigation = build_investigation_for_incident(
         _incident(),
         merchant_events=_merchant_events(),
@@ -88,7 +90,10 @@ def test_investigation_uses_persisted_evidence_and_mentions_ml_signal() -> None:
 
     assert investigation.incident_id == "incident-ml-001"
     assert investigation.provider == "local-anomaly-analysis"
-    assert investigation.evidence_references
+    assert investigation.ml_assessment is not None
+    assert investigation.ml_assessment["available"] is True
+    assert investigation.ml_assessment["evidence_references"]
+    assert any(ref.startswith("transaction:") for ref in investigation.ml_assessment["evidence_references"])
     assert any("anomaly" in finding.lower() for finding in investigation.findings)
     assert investigation.recommended_action in {"INVESTIGATE", "VERIFY", "HOLD"}
 
@@ -98,5 +103,7 @@ def test_investigation_handles_cold_start_without_fabricating_evidence() -> None
     insufficient = build_investigation_for_incident(incident, merchant_events=[])
 
     assert insufficient.risk_level == "LOW"
+    assert insufficient.ml_assessment is not None
+    assert insufficient.ml_assessment["available"] is False
     assert "insufficient evidence" in insufficient.reasoning_summary.lower()
     assert insufficient.limitations

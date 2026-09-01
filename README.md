@@ -1,115 +1,129 @@
 # FraudSpike AI
 
-FraudSpike AI is a fraud-risk detection and risk-operations platform for merchant-level payment anomalies. It combines synthetic transaction ingestion, merchant risk scoring, incident management, verification, and a bounded analyst workflow in a local demo environment.
+FraudSpike AI is a merchant fraud-risk investigation platform built to surface suspicious behavior, connect it to structured evidence, and support analyst review in a transparent, auditable workflow. The project is designed as a local demo system for fraud detection and investigation, with clear boundaries around what is evidence-backed, what is rule-based, and what remains a human decision.
 
-## Overview
+## Problem statement
 
-The product is designed to detect suspicious merchant-level fraud spikes, explain why a signal is risky, and route the outcome into a structured investigation and response workflow without pretending to be a production payment system.
+Payment fraud operations teams need to identify abnormal merchant activity quickly, explain why a signal is suspicious, and escalate only when the evidence is strong enough to justify a review. In real fraud programs, this requires more than a single score: it requires good signals, trusted evidence, a review workflow, and a complete audit trail.
 
-## Problem
+FraudSpike AI models this challenge in a compact, local environment using synthetic payment data so the detection pipeline, investigation process, and decision logic remain explainable and demonstrable.
 
-Online merchants can experience abrupt fraud surges that are difficult to distinguish from normal variation. In a risk-ops setting, teams need clear evidence, explainable scoring, accountable workflow state, and defined boundaries on what action is appropriate.
+## Solution overview
 
-## Key capabilities
+This project combines:
 
-- merchant-level fraud spike detection
-- transaction risk scoring
-- evidence-backed incident creation
-- analyst investigation workflow
-- claim verification against structured evidence
-- stateful incident lifecycle with audit records
-- bounded response actions for demo review
-- held-out evaluation reporting with honest metrics
+- deterministic fraud-spike detection for merchant-level anomalies
+- transaction risk scoring based on structured evidence
+- persisted incident records and lifecycle transitions
+- evidence-backed investigation summaries
+- local anomaly analysis as a supplemental, transparent signal
+- analyst-facing review flows with recommendations and audit logging
+- honest held-out evaluation reporting based on a real validation/test split
+
+The system is intentionally designed to be transparent about the difference between:
+
+- rule-based fraud detection
+- local anomaly analysis
+- analyst decisioning
+- constrained demo operations
 
 ## Architecture
 
 ```text
-Synthetic payment data
-        ↓
+Synthetic payment events
+        │
+        ▼
 FastAPI backend
-        ↓
-Risk scoring + detection
-        ↓
-Incident persistence
-        ↓
-Investigation + verification
-        ↓
-Response workflow + audit trail
-        ↓
-React frontend dashboard
+        │
+        ├─ risk scoring
+        ├─ merchant spike detection
+        ├─ incident persistence
+        ├─ evidence assembly
+        ├─ investigation + verification
+        └─ audit trail
+        │
+        ▼
+React + TypeScript frontend
+        │
+        ├─ dashboard
+        ├─ incident review
+        ├─ investigation workstation
+        ├─ audit and evaluation views
+        └─ analyst workflow
 ```
 
-## Data flow
+## Core capabilities
 
-1. Synthetic payment events are ingested or seeded.
-2. The backend scores merchant activity and compares observed fraud behavior to the baseline.
-3. Merchant spikes are surfaced as incidents.
-4. Investigation and verification logic reviews supporting evidence.
-5. Analysts can apply bounded response actions.
-6. State changes are persisted and recorded in the audit trail.
+- merchant-level fraud spike detection from payment history patterns
+- transaction-level risk scoring for suspicious event behavior
+- incident creation with severity, lifecycle, and evidence references
+- evidence-grounded investigation summaries that tie conclusions to stored records
+- local anomaly analysis using a lightweight Isolation Forest signal when enough history exists
+- human-in-the-loop analyst review with recommendation tracking
+- persistence and audit records that make the workflow explainable and traceable
+- held-out evaluation with transparent metric calculation and honest reporting
 
-## Fraud-spike detection
+## Investigation flow
 
-The detector is deterministic and rule-based rather than a production ML system. It evaluates merchant behavior against a baseline, identifies suspicious deviations in fraud rate and concentration, and assigns a risk-informed incident record.
+1. Payment events are ingested or seeded into the local system.
+2. Risk scoring evaluates individual transactions and event clusters.
+3. A merchant-level spike detector identifies abnormal fraud-rate deviations.
+4. An incident is created with the observed rate, baseline rate, severity, and evidence window.
+5. The investigation layer assembles supporting evidence and produces a bounded explanation.
+6. A local anomaly signal is calculated only when enough transaction history exists.
+7. The analyst reviews the recommendation, records a decision, and the state is audited.
 
-## Transaction risk scoring
+## Evidence-grounded AI explanation
 
-Risk scoring is intentionally simple, explainable, and bounded to the local demo environment. It uses merchant-level transaction patterns and evidence-backed heuristics to surface risk without claiming production-grade automated decisioning.
+The project does not claim that the system makes autonomous payment decisions.
 
-## Ingestion
+Instead, it takes a grounded approach:
 
-The backend supports synthetic and structured event ingestion through API routes. The goal is to demonstrate a realistic fraud-risk pipeline while keeping the data scope clearly limited to local demo data.
+- findings are tied to real persisted evidence
+- investigations explain what changed and why it matters
+- local anomaly scoring is presented as a supplementary signal
+- unsupported claims are not treated as verified conclusions
+- the UI and API are explicit about where evidence is insufficient
 
-## Incident management
+This makes the platform far more credible in a competition or demo setting than a generic chatbot-style fraud demo.
 
-Incidents are stored in the application database and follow explicit state transitions. Valid actions are limited to an allowed lifecycle, and invalid transitions are rejected with an audit-safe error. Each accepted change records the previous and new states.
+## Local ML anomaly component
 
-## Investigation and verification
+The local anomaly component is intentionally narrow and honest:
 
-The investigation layer summarizes the supporting evidence and produces a bounded explanation for the detection. The verification layer checks whether the claims made by the investigation are actually supported by the observed evidence.
+- it is a supporting signal for investigation, not the core decision engine
+- it uses persisted event features such as amount, amount ratio, velocity, device reuse, and temporal patterns
+- it only runs when enough transaction history exists
+- if evidence is insufficient, the system returns a clear insufficient-evidence state instead of fabricating certainty
 
-## Evaluation methodology
+The deterministic fraud detection and risk engine remain the primary operational logic. The local anomaly model does not replace them.
 
-The project uses a held-out merchant-window evaluation workflow. The detector is evaluated only on the test split after the validation policy is selected, keeping the reported metric set consistent and leakage-safe.
+## Human-in-the-loop decision model
 
-## Verified metrics
+Analyst actions are recorded, not executed automatically. The system supports a review-oriented decision flow such as:
 
-Prediction unit: merchant_window
-Test predictions: 96
-TP: 21
-FP: 8
-TN: 66
-FN: 1
-Precision: 72.41%
-Recall: 95.45%
-F1: 82.35%
+- MONITOR
+- INVESTIGATE
+- VERIFY
+- HOLD
+- BLOCK
 
-## Dataset
+These actions are recorded against the investigation and incident for traceability. The system does not perform destructive payment actions in the demo workflow.
 
-The project uses a deterministic synthetic payment dataset with a train/validation/test split. This keeps the demo realistic while remaining transparent about scope and limitations.
+## Auditability
 
-## Security
+Every meaningful workflow change is stored with an audit record containing:
 
-- secrets are not committed to the repository
-- local environment variables remain in `.env` and `.env.example`
-- no production payment credentials are required for the local demo
-- all actioning remains bounded and explainable
+- incident ID
+- investigation reference when relevant
+- action taken
+- source or system origin
+- timestamp
+- structured details
 
-## Razorpay demo/test-mode boundary
+This supports investigation traceability and keeps the demo operational flow credible and reviewable.
 
-The Razorpay integration is intentionally demo-safe and test-mode aware. It does not claim live production connectivity or real payment execution.
-
-## Limitations
-
-- synthetic local dataset only
-- no live payment rail access
-- no production connector credentials
-- no real-time streaming in the demo environment
-- risk scoring is transparent and bounded by local rules rather than a production ML model
-
-## Local setup
-
-### Backend
+## Backend setup
 
 ```bash
 cd backend
@@ -117,12 +131,52 @@ python -m pip install -e .
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### Frontend
+## Frontend setup
 
 ```bash
 cd frontend
 npm install
 npm run dev -- --host 0.0.0.0 --port 5000
+```
+
+## How to run
+
+From the project root:
+
+```bash
+cd backend
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+In a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0 --port 5000
+```
+
+Then open the frontend in the browser and use the incident dashboard and investigation workflow.
+
+## API overview
+
+The backend exposes a set of demo-oriented API routes for:
+
+- health checks
+- synthetic event ingestion
+- transaction risk scoring
+- merchant and incident discovery
+- investigation generation
+- verification and audit queries
+- evaluation reporting
+
+Core investigation routes include:
+
+```http
+POST /api/incidents/{incident_id}/investigate
+GET /api/incidents/{incident_id}/investigation
+GET /api/incidents/{incident_id}/audit
+GET /api/incidents/{incident_id}/verification
 ```
 
 ## Testing
@@ -134,9 +188,21 @@ pytest -q
 
 ```bash
 cd frontend
-npm run build
+npm.cmd run build
 ```
 
-## Notes
+## Production limitations and scope
 
-FraudSpike AI is intended as a defensible local demo and competition project. It stays honest about the synthetic dataset, bounded workflow, and verified evaluation results.
+FraudSpike AI is a local demonstration platform and not a production payment processor. It is intentionally scoped to:
+
+- synthetic demo data
+- local persistence
+- explainable investigation logic
+- transparent, bounded decision support
+- human review as the final step
+
+The project does not claim real-time production monitoring, live payment execution, or externally connected fraud infrastructure.
+
+## Summary
+
+FraudSpike AI reflects a practical fraud-operations workflow: detect suspicious merchant behavior, investigate structured evidence, explain the risk, keep the workflow auditable, and leave the final decision with the analyst. The result is a credible local demo platform that is clear about its scope and technically honest about what it does and does not do.

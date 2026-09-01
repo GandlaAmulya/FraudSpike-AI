@@ -7,9 +7,8 @@
 Thumbs.db
 
 # Local workspace artifacts
-.replit
 .agents/
-attached_assets/
+attached_asAND sets/
 
 # Environment files
 .env

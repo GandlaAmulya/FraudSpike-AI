@@ -161,6 +161,24 @@ export type InvestigationRecord = {
   confidence: string | null;
   explanation: string | null;
   recommended_defensive_response: string | null;
+  provider?: string | null;
+  risk_level?: string | null;
+  findings?: string[];
+  evidence_references?: string[];
+  reasoning_summary?: string | null;
+  recommended_action?: string | null;
+  limitations?: string[];
+  ml_assessment?: {
+    model?: string | null;
+    model_version?: string | null;
+    available?: boolean | null;
+    anomaly_score?: number | null;
+    assessment?: string | null;
+    features_used?: string[];
+    evidence_references?: string[];
+    reasoning_summary?: string | null;
+    limitations?: string[];
+  } | null;
 };
 
 export type VerificationRecord = {

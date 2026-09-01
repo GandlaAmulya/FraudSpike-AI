@@ -1,81 +1,111 @@
 # FraudSpike AI architecture
 
-## System boundary
+## Overview
+
+FraudSpike AI is a local fraud-operations demo built around a simple but credible workflow: detect suspicious merchant behavior, turn it into an incident, investigate the evidence, and keep the analyst in the loop. The system is intentionally scoped to be transparent about what is real, what is local, and what remains a human decision.
+
+## Design principles
+
+- keep the fraud detector authoritative and deterministic
+- separate evidence-backed investigation from model-like assistance
+- keep the workflow auditable and reviewable
+- avoid pretending the demo is a production payment processor
+- retain a clean boundary between frontend presentation, backend logic, and persistence
+
+## High-level system flow
 
 ```mermaid
 flowchart LR
-    A[Synthetic Payment Dataset] --> B[Event Ingestion API]
-    B --> C[Merchant Aggregation]
-    C --> D[Fraud Spike Detector]
-    D --> E[Risk Scoring]
-    E --> F[Incident Store]
-    F --> G[Investigation Engine]
-    G --> H[Verification Layer]
-    H --> I[Policy / Response]
-    I --> J[Audit Trail]
-    J --> K[React Command Center]
-    E --> L[Razorpay Test Adapter]
+    A[Payment events] --> B[Risk scoring]
+    B --> C[Merchant spike detector]
+    C --> D[FraudSpikeIncident]
+    D --> E[Evidence collection]
+    E --> F[Investigation service]
+    F --> G[Verification layer]
+    G --> H[Analyst review]
+    H --> I[Audit trail]
+    I --> J[Frontend dashboard]
+    B --> K[Local anomaly support]
 ```
 
-The working system is a backend-authoritative merchant-risk platform. The frontend is presentation-only and does not access payment credentials or external model services directly.
+## Backend responsibilities
 
-## Frontend / backend flow
+The backend owns the application logic that matters operationally:
 
-- The browser calls relative API paths such as `/api/health`, `/api/dashboard/summary`, `/api/incidents`, and `/api/evaluation`.
-- The React frontend renders the dashboard, merchant intelligence, investigation workstation, evaluation center, and audit views.
-- The FastAPI backend owns the detector, evaluation, incident lifecycle, investigation, verification, and audit functions.
-- SQLite is the local persistence layer for the demo environment.
+- ingesting and validating payment events
+- scoring transactions and merchants
+- detecting merchant-level fraud spikes
+- persisting incidents and investigations
+- building evidence-backed investigation summaries
+- generating verification results against structured evidence
+- recording audit events for decisions and state changes
 
-## Core domains
+The backend uses FastAPI and SQLite for the local demo environment, with strongly typed Pydantic models in the schema layer.
 
-The current implementation includes:
+## Frontend responsibilities
 
-- `PaymentEvent`: event-level payment record with merchant, timestamp, amount, fraud label, and metadata.
-- `FraudSpikeIncident`: merchant-level incident with baseline, observed fraud rate, severity, status, and detector metadata.
-- `Investigation`: structured explanation and hypotheses for a flagged merchant.
-- `VerificationResult`: supported vs unsupported claims and evidence references.
-- `AuditEvent`: append-only lifecycle and analyst action events.
+The frontend is responsible for presentation and analyst workflows only:
 
-## Detection flow
+- dashboard metrics
+- merchant risk view
+- incident list and detail views
+- investigation workstation
+- audit trail views
+- evaluation summaries
+- analyst action entry and status display
 
-The detector operates at merchant level. It compares each merchant's observed fraud rate and event pattern to baseline behavior and produces a spike signal when the deviation crosses the configured anomaly threshold. Each merchant-spike is converted into an incident with a status, severity, and timestamp.
+It does not own the decision engine and does not manage production payment credentials or external systems directly.
 
-## Evaluation flow
+## Core domain objects
 
-The evaluation service computes confusion-matrix-based outcomes from the held-out test set. The app exposes the live numbers through the backend API and the UI reads them directly. It intentionally reports the real precision/recall trade-off and the false-positive cost instead of hiding it.
+The working implementation includes the following contracts:
+
+- PaymentEvent: a normalized payment record with time, amount, currency, method, status, customer and device references, geography, fraud label, and extensible metadata
+- FraudLabel: legitimate, fraudulent, and unknown
+- FraudSpikeIncident: merchant-level incident with risk, severity, status, baseline/observed rate, and analysis window
+- EvidenceItem: structured evidence with category, metric, baseline comparison, timestamps, and supporting event references
+- Investigation: structured investigation output with hypotheses, evidence references, explanation, and recommended defensive action
+- EvaluationResult: held-out evaluation record with nullable metrics until evaluation runs
+- AuditEvent: immutable system or analyst action record for traceability
+
+## Risk and detection flow
+
+The merchant spike detector compares observed fraud behavior against a baseline and highlights meaningful deviations. The logic is intentionally deterministic and explainable rather than a black-box model.
+
+The risk engine and detector remain the primary signal path. The local anomaly component is supplementary and only used when there is enough evidence to support a lightweight, local ML signal.
 
 ## Investigation and verification flow
 
-The investigation layer consumes structured evidence and creates a concise explanation with hypotheses and recommended defensive response. The verification layer checks whether each claim is supported by the available evidence and distinguishes it clearly from unsupported claims.
+The investigation layer builds a structured finding using persisted incident evidence. It does not invent findings or silently fabricate monitoring text. Verification is a separate step that checks whether the investigation's claims are actually supported by evidence.
+
+This is a key trust boundary: the investigation answer is constrained by evidence, not by a generalized generative narrative.
 
 ## Response and audit flow
 
-Response actions are bounded and defensive-only. They operate as policy events rather than unrestricted financial control. Every lifecycle or analyst action is persisted to the audit trail so the incident history remains reviewable.
+Response actions remain bounded and defensive. They are recorded for accountability and use the existing audit trail rather than performing uncontrolled payment operations.
 
-## Safety and trust boundaries
-
-- Frontend: presentation only, no secret material, no direct LLM access, no direct payment credentials.
-- Backend: authoritative business logic, detector, evaluation, investigation, verification, action policy, audit persistence.
-- AI/investigation: optional and evidence-grounded; no unrestricted action authority.
-- Razorpay: demo/test mode only unless explicit credentials are configured and verified.
+Every incident and investigation lifecycle change is traceable through the audit flow.
 
 ## Persistence
 
-The current local app stores incidents, investigations, and audit events in SQLite. This is suitable for the local demo and keeps the risk workflow fully traceable.
+The repository uses a local SQLite-backed persistence layer for the demo environment. It stores:
 
-## Current implementation footprint
+- incidents
+- investigations
+- evidence metadata
+- audit rows
+- local state changes
 
-The live local system includes:
+No secrets, API keys, or credentials are stored in the domain models or persisted records.
 
-- dashboard
-- merchant intelligence
-- incident center
-- investigation workstation
-- evaluation center
-- audit trail
-- system status
-- synthetic/demo mode labeling
-- backend-driven API data layer
-- real reportable metrics
+## Safety and trust boundaries
 
-This repository reflects the actual working product, not an earlier scaffold.
+- frontend: presentation layer only
+- backend: authoritative logic and persistence
+- local anomaly support: supplementary only
+- external AI/LLM integrations: optional and not required for the core flow
+- Razorpay: demo/test mode only and clearly separated from the core domain model
+
+## Current scope
+
+This project is a credible local fraud investigation demo. It is not a real payment processor, not a production threat platform, and not a live monitoring system connected to real payment rails.

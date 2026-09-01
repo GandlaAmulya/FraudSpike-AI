@@ -249,6 +249,10 @@ async def persist_investigation(session: AsyncSession, investigation: Investigat
     row.evidence_references_json = json.dumps(investigation.evidence_references)
     row.reasoning_summary = investigation.reasoning_summary
     row.recommended_action = investigation.recommended_action
+    row.provider = investigation.provider
+    row.ml_assessment_json = json.dumps(investigation.ml_assessment or {})
+    row.provider = investigation.provider
+    row.ml_assessment_json = json.dumps(investigation.ml_assessment or {})
     row.limitations_json = json.dumps(investigation.limitations)
     row.generated_at = investigation.generated_at
     await session.commit()

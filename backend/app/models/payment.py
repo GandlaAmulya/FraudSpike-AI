@@ -76,6 +76,8 @@ class InvestigationModel(Base):
     evidence_references_json: Mapped[str] = mapped_column(Text, default="[]")
     reasoning_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     recommended_action: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ml_assessment_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     limitations_json: Mapped[str] = mapped_column(Text, default="[]")
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

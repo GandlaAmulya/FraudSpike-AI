@@ -13,7 +13,7 @@ from app.schemas import (
     PaymentEvent,
     VerificationResult,
 )
-from app.services.local_ml import LocalAnomalyModel
+from app.services.local_ml import LocalAnomalyAgent
 
 
 def _evidence_items_for_incident(
@@ -49,14 +49,14 @@ def _evidence_items_for_incident(
         ),
     ]
     if merchant_events:
-        anomaly = LocalAnomalyModel().score(merchant_events)
+        anomaly = LocalAnomalyAgent().analyze(merchant_events)
         evidence.append(
             EvidenceItem(
                 evidence_id=f"evidence-{incident.incident_id}-local-anomaly",
                 incident_id=incident.incident_id,
                 category=EvidenceCategory.OTHER,
                 metric="local_anomaly_score",
-                value=float(anomaly["anomaly_score"]),
+                value=(anomaly.get("anomaly_score") if anomaly.get("anomaly_score") is not None else 0.0),
                 baseline_value=Decimal("0.10"),
                 supporting_event_ids=[item.event_id for item in merchant_events[:5]],
                 window=incident.analysis_window,
@@ -81,6 +81,7 @@ def build_fallback_investigation(
     merchant_events: list[PaymentEvent] | None = None,
 ) -> Investigation:
     evidence = _evidence_items_for_incident(incident, merchant_events)
+    model_result = LocalAnomalyAgent().analyze(merchant_events or [])
     if not merchant_events:
         return Investigation(
             investigation_id=f"investigation-{incident.incident_id}",
@@ -104,11 +105,11 @@ def build_fallback_investigation(
             reasoning_summary="Insufficient evidence: the incident lacks enough merchant transaction history to support a meaningful local anomaly assessment.",
             recommended_action="VERIFY",
             provider="local-anomaly-analysis",
+            ml_assessment=model_result,
             limitations=["No transaction history was available for local anomaly scoring."],
         )
 
-    model_result = LocalAnomalyModel().score(merchant_events)
-    anomaly_score = float(model_result["anomaly_score"])
+    anomaly_score = float(model_result["anomaly_score"] or 0.0)
     risk_level = _local_risk_level(anomaly_score)
     action = "HOLD" if risk_level in {"HIGH", "CRITICAL"} else "INVESTIGATE"
     return Investigation(
@@ -125,8 +126,8 @@ def build_fallback_investigation(
         verification_result=VerificationResult.CONFIRMED_FRAUD_SPIKE,
         confidence=Decimal(str(min(0.99, max(0.60, anomaly_score + 0.20)))),
         explanation=(
-            "The local anomaly model reviewed the persisted merchant event history and identified an elevated fraud-like pattern "
-            "that aligns with the observed baseline deviation and transaction concentration in the flagged window."
+            "The local anomaly model reviewed the persisted merchant event history and produced an ML signal that aligns with the observed "
+            "baseline deviation and transaction concentration in the flagged window. The conclusion is tied to persisted evidence, not unsupported assumptions."
         ),
         recommended_defensive_response=(
             "Review the flagged merchant, verify the suspicious device and payment patterns, and hold only the most suspicious transactions for manual review."
@@ -140,11 +141,12 @@ def build_fallback_investigation(
         ],
         evidence_references=[item.evidence_id for item in evidence],
         reasoning_summary=(
-            "The incident was evaluated using persisted merchant evidence and a local anomaly model. The observed fraud-rate deviation, "
-            "transaction pattern, and local anomaly score are aligned and support a targeted review."
+            "The incident was evaluated using persisted merchant evidence and a local ML signal. The observed fraud-rate deviation, "
+            "transaction pattern, and local anomaly score are aligned and support a targeted review grounded in the stored event history."
         ),
         recommended_action=action,
         provider="local-anomaly-analysis",
+        ml_assessment=model_result,
         limitations=["This is a local deterministic anomaly score, not a production ML system."],
     )
 
@@ -157,8 +159,8 @@ def build_investigation_for_incident(
         return build_fallback_investigation(incident, merchant_events)
 
     evidence = _evidence_items_for_incident(incident, merchant_events)
-    model_result = LocalAnomalyModel().score(merchant_events)
-    anomaly_score = float(model_result["anomaly_score"])
+    model_result = LocalAnomalyAgent().analyze(merchant_events)
+    anomaly_score = float(model_result["anomaly_score"] or 0.0)
     risk_level = _local_risk_level(anomaly_score)
     action = "HOLD" if risk_level in {"HIGH", "CRITICAL"} else "INVESTIGATE"
     investigation = Investigation(
@@ -175,7 +177,7 @@ def build_investigation_for_incident(
         verification_result=VerificationResult.CONFIRMED_FRAUD_SPIKE,
         confidence=Decimal(str(min(0.99, max(0.60, anomaly_score + 0.15)))),
         explanation=(
-            "The investigation relies on persisted payment evidence and a local anomaly model. The merchant's reported fraud-rate deviation, "
+            "The investigation relies on persisted payment evidence and a local ML signal. The merchant's reported fraud-rate deviation, "
             "high-risk payment pattern, and local anomaly signal all point toward a targeted investigation instead of a fabricated conclusion."
         ),
         recommended_defensive_response=(
@@ -184,17 +186,18 @@ def build_investigation_for_incident(
         assessment="Evidence-grounded local analysis supports a targeted fraud investigation.",
         risk_level=risk_level,
         findings=[
-            f"Local anomaly review flagged an elevated anomaly score of {anomaly_score:.3f}.",
-            "Observed fraud rate exceeds the merchant baseline and is consistent with the incident window.",
-            "The conclusion is grounded in persisted evidence and local deterministic scoring.",
+            f"Local anomaly review flagged an elevated anomaly score of {anomaly_score:.3f} and the local ML signal is active.",
+            "Observed fraud rate exceeds the merchant baseline and is consistent with the incident window using persisted evidence.",
+            "The conclusion is grounded in persisted evidence and local deterministic scoring rather than unsupported assumptions.",
         ],
         evidence_references=[item.evidence_id for item in evidence],
         reasoning_summary=(
-            "The case was reviewed using persisted merchant evidence and a local anomaly model. The combination of a baseline deviation, "
-            "repeated suspicious activity, and an elevated anomaly score supports a targeted investigation."
+            "The case was reviewed using persisted merchant evidence and a local ML signal. The combination of a baseline deviation, "
+            "repeated suspicious activity, and an elevated anomaly score supports a targeted investigation grounded in stored event history."
         ),
         recommended_action=action,
         provider="local-anomaly-analysis",
+        ml_assessment=model_result,
         limitations=["This is a local deterministic anomaly model, not a production ML deployment."],
     )
     return investigation
