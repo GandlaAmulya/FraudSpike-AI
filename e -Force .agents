@@ -1,5 +1,0 @@
-[35m.agents/memory/empty-monorepo-dependencies.md[m[36m:[m[32m3[m[36m:[mdescription: [1;31mReplit[m package setup behavior to watch for in a split frontend/backend repository
-[35m.agents/memory/empty-monorepo-dependencies.md[m[36m:[m[32m6[m[36m:[mWhen adding Python dependencies to an otherwise empty monorepo, the [1;31mReplit[m
-[35m.gitignore[m[36m:[m[32m10[m[36m:[m.[1;31mreplit[m
-[35mattached_assets/Pasted-We-are-building-a-buildathon-project-called-FraudSpike-_1788015631325.txt[m[36m:[m[32m21[m[36m:[m- Deployment: [1;31mReplit[m
-[35mattached_assets/Pasted-We-are-building-a-buildathon-project-called-FraudSpike-_1788015631325.txt[m[36m:[m[32m31[m[36m:[m7. [1;31mAI-generated[m investigation explanation based only on structured evidence

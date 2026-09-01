@@ -1,6 +1,0 @@
- .agents/memory/MEMORY.md                      |   2 [31m-[m
- .agents/memory/contract-serialization.md      |  18 [31m---[m
- .agents/memory/empty-monorepo-dependencies.md |  18 [31m---[m
- backend/app/schemas/contracts.py              |   1 [32m+[m
- backend/app/services/investigation.py         | 165 [32m++++++++++++++++++++[m[31m------[m
- 5 files changed, 131 insertions(+), 73 deletions(-)
