@@ -288,6 +288,30 @@ async def get_dashboard_summary(session: AsyncSession) -> dict[str, object]:
         "medium": sum(1 for item in incidents if item.severity == "medium"),
         "low": sum(1 for item in incidents if item.severity == "low"),
     }
+    payment_fraud_rate = (fraud_count / total_tx) if total_tx else 0
+    active_incidents = [
+        incident
+        for incident in incidents
+        if incident.status not in {"dismissed", "resolved"}
+    ]
+    risk_audit_rows = await session.execute(
+        select(AuditEventModel.details_json).where(
+            AuditEventModel.action == "EVENT_INGESTED"
+        )
+    )
+    persisted_risk_scores = []
+    for (details_json,) in risk_audit_rows.all():
+        try:
+            risk_score = json.loads(details_json or "{}").get("risk_score")
+            if risk_score is not None:
+                persisted_risk_scores.append(float(risk_score))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+    strongest_transaction_risk = max(persisted_risk_scores, default=0.0)
+    risk_posture = max(
+        [payment_fraud_rate, strongest_transaction_risk]
+        + [float(incident.observed_fraud_rate) for incident in active_incidents]
+    )
 
     merchant_query = await session.execute(
         select(PaymentEventModel.merchant_id, func.count(PaymentEventModel.id), func.sum(PaymentEventModel.fraud_label == "fraudulent"))
@@ -306,12 +330,9 @@ async def get_dashboard_summary(session: AsyncSession) -> dict[str, object]:
 
     return {
         "total_transactions": int(total_tx or 0),
-        "fraud_rate": round((fraud_count / total_tx) if total_tx else 0, 4),
-        "active_incidents": sum(
-            1
-            for incident in incidents
-            if incident.status not in {"dismissed", "resolved"}
-        ),
+        "fraud_rate": round(payment_fraud_rate, 4),
+        "risk_posture": round(risk_posture, 4),
+        "active_incidents": len(active_incidents),
         "severity_breakdown": severity_breakdown,
         "merchant_risk_ranking": merchant_risk[:5],
         "false_positive_cost_estimate": str(cost.quantize(Decimal("0.01"))),

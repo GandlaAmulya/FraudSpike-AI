@@ -106,6 +106,7 @@ export const api = {
 export type DashboardSummary = {
   total_transactions: number;
   fraud_rate: number;
+  risk_posture: number;
   active_incidents: number;
   severity_breakdown: Record<"critical" | "high" | "medium" | "low", number>;
   merchant_risk_ranking: Array<{

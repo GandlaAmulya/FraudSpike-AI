@@ -100,11 +100,12 @@ async def synthetic_stream(payload: dict[str, str] | None = None) -> dict[str, o
 
 @router.post("/risk/score")
 async def risk_score(event: PaymentEvent) -> dict[str, object]:
-    merchant_events = [
-        item
-        for item in build_demo_dataset()
-        if item.merchant_id == event.merchant_id and item.occurred_at < event.occurred_at
-    ]
+    async with session_factory() as session:
+        merchant_events = await load_merchant_history(
+            session,
+            event.merchant_id,
+            event.occurred_at,
+        )
     return score_transaction(event, merchant_events)
 
 
@@ -155,27 +156,31 @@ async def create_event(event: PaymentEvent) -> PaymentEvent:
 
 @router.get("/merchants")
 async def list_merchants() -> list[str]:
-    split = _dataset_key()
-    events = split["train"] + split["validation"] + split["test"]
-    return sorted({event.merchant_id for event in events})
+    async with session_factory() as session:
+        rows = await session.execute(select(PaymentEventModel.merchant_id).distinct())
+    return sorted(row[0] for row in rows.all())
 
 
 @router.get("/merchants/{merchant_id}")
 async def get_merchant(merchant_id: str) -> dict[str, object]:
-    split = _dataset_key()
-    events = split["train"] + split["validation"] + split["test"]
-    merchant_events = [event for event in events if event.merchant_id == merchant_id]
-    if not merchant_events:
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                select(PaymentEventModel).where(PaymentEventModel.merchant_id == merchant_id)
+            )
+        ).scalars().all()
+    if not rows:
         raise HTTPException(status_code=404, detail="Merchant not found")
-    fraud_count = sum(1 for event in merchant_events if event.fraud_label is FraudLabel.FRAUDULENT)
+    total_transactions = len(rows)
+    fraud_count = sum(1 for event in rows if event.fraud_label == FraudLabel.FRAUDULENT.value)
     return {
         "merchant_id": merchant_id,
-        "total_transactions": len(merchant_events),
+        "total_transactions": total_transactions,
         "fraudulent_transactions": fraud_count,
-        "risk_score": round((fraud_count / len(merchant_events)), 4) if merchant_events else 0,
+        "risk_score": round((fraud_count / total_transactions), 4),
         "baseline_vs_current": {
             "baseline_fraud_rate": "0.02",
-            "current_fraud_rate": str((Decimal(fraud_count) / Decimal(len(merchant_events))).quantize(Decimal("0.000001"))),
+            "current_fraud_rate": str((Decimal(fraud_count) / Decimal(total_transactions)).quantize(Decimal("0.000001"))),
         },
     }
 
