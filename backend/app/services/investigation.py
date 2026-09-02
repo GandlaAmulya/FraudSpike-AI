@@ -20,10 +20,7 @@ def _evidence_items_for_incident(
     incident: FraudSpikeIncident,
     merchant_events: list[PaymentEvent] | None = None,
 ) -> list[EvidenceItem]:
-    suspicious_event_ids = incident.suspicious_event_ids or [
-        f"event-{incident.incident_id}-sample-1",
-        f"event-{incident.incident_id}-sample-2",
-    ]
+    suspicious_event_ids = incident.suspicious_event_ids
     evidence: list[EvidenceItem] = [
         EvidenceItem(
             evidence_id=f"evidence-{incident.incident_id}-baseline",

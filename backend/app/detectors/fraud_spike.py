@@ -180,6 +180,11 @@ class MerchantFraudSpikeDetector:
                         status=IncidentStatus.DETECTED,
                         detector_version=self.detector_version,
                         confidence=Decimal("0.90"),
+                        suspicious_event_ids=[
+                            event.event_id
+                            for event in current_window
+                            if event.fraud_label is FraudLabel.FRAUDULENT
+                        ],
                     )
                 )
 

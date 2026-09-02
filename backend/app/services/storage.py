@@ -33,7 +33,6 @@ def _as_utc(value: datetime | None) -> datetime | None:
 
 async def persist_payment_events(session: AsyncSession, events: list[PaymentEvent]) -> None:
     for event in events:
-        row = await session.get(PaymentEventModel, event.event_id) if False else None
         existing = await session.execute(
             select(PaymentEventModel).where(PaymentEventModel.event_id == event.event_id)
         )
@@ -251,8 +250,6 @@ async def persist_investigation(session: AsyncSession, investigation: Investigat
     row.recommended_action = investigation.recommended_action
     row.provider = investigation.provider
     row.ml_assessment_json = json.dumps(investigation.ml_assessment or {})
-    row.provider = investigation.provider
-    row.ml_assessment_json = json.dumps(investigation.ml_assessment or {})
     row.limitations_json = json.dumps(investigation.limitations)
     row.generated_at = investigation.generated_at
     await session.commit()
@@ -310,7 +307,11 @@ async def get_dashboard_summary(session: AsyncSession) -> dict[str, object]:
     return {
         "total_transactions": int(total_tx or 0),
         "fraud_rate": round((fraud_count / total_tx) if total_tx else 0, 4),
-        "active_incidents": len(incidents),
+        "active_incidents": sum(
+            1
+            for incident in incidents
+            if incident.status not in {"dismissed", "resolved"}
+        ),
         "severity_breakdown": severity_breakdown,
         "merchant_risk_ranking": merchant_risk[:5],
         "false_positive_cost_estimate": str(cost.quantize(Decimal("0.01"))),

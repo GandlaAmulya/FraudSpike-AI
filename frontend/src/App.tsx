@@ -77,6 +77,7 @@ function App() {
   const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>(null);
 
   const [incidents, setIncidents] = useState<IncidentRecord[]>([]);
+  const [incidentSearch, setIncidentSearch] = useState("");
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [incidentDetail, setIncidentDetail] = useState<IncidentRecord | null>(null);
   const [investigation, setInvestigation] = useState<InvestigationRecord | null>(null);
@@ -87,6 +88,7 @@ function App() {
   const [ingestionResult, setIngestionResult] = useState<Record<string, unknown> | null>(null);
   const [streamScenario, setStreamScenario] = useState("FRAUD SPIKE");
   const [streamStatus, setStreamStatus] = useState<"idle" | "running" | "paused">("idle");
+  const [streamEvents, setStreamEvents] = useState<Array<Record<string, unknown>>>([]);
   const [streamMetrics, setStreamMetrics] = useState<Record<string, unknown>>({
     events_processed: 0,
     events_per_minute: 0,
@@ -105,7 +107,7 @@ function App() {
   });
   const [simulatorResult, setSimulatorResult] = useState<Record<string, unknown> | null>(null);
 
-  const loadOverview = async () => {
+  const loadOverview = async (): Promise<DashboardSummary | null> => {
     try {
       setError(null);
       const [dashboard, merchantList, incidentList, evaluationData, razStatus] = await Promise.all([
@@ -128,9 +130,11 @@ function App() {
       if (!selectedIncidentId && incidentList[0]) {
         setSelectedIncidentId(incidentList[0].incident_id);
       }
+      return dashboard;
     } catch (caughtError) {
       console.error(caughtError);
       setError("The live backend data could not be loaded. Verify the FastAPI service is running.");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -222,6 +226,14 @@ function App() {
     }));
   }, [summary]);
 
+  const filteredIncidents = useMemo(() => {
+    const query = incidentSearch.trim().toLowerCase();
+    if (!query) return incidents;
+    return incidents.filter((incident) =>
+      incident.incident_id.toLowerCase().includes(query) || incident.merchant_id.toLowerCase().includes(query),
+    );
+  }, [incidents, incidentSearch]);
+
   const heroSummary = useMemo(() => {
     if (!summary) return null;
     return {
@@ -286,21 +298,27 @@ function App() {
   const runSyntheticStream = async (scenario: string) => {
     try {
       setError(null);
+      setStreamStatus("running");
       const result = await api.syntheticStream(scenario);
+      const accepted = Number(result.records_accepted ?? result.events?.length ?? 0);
+      const fraudRate = Number(result.risk_summary?.fraud_rate ?? 0);
+      const highRisk = Number(result.risk_summary?.high_risk ?? 0);
+      const overview = await loadOverview();
       setStreamMetrics({
-        events_processed: Number(result.records_accepted ?? 0),
-        events_per_minute: Math.max(5, Number(result.records_accepted ?? 0)),
-        current_fraud_rate: Number(result.risk_summary?.fraud_rate ?? 0),
-        suspicious_events: Number(result.risk_summary?.high_risk ?? 0),
-        active_incidents: Number(result.risk_summary?.merchants_affected ?? 0),
+        events_processed: accepted,
+        events_per_minute: Math.max(accepted, 1),
+        current_fraud_rate: fraudRate,
+        suspicious_events: highRisk,
+        active_incidents: overview?.active_incidents ?? Number(result.incidents_created ?? 0),
         processing_latency_ms: Number(result.processing_time_ms ?? 0),
       });
+      setStreamEvents(Array.isArray(result.events) ? result.events : []);
       setStreamStatus("running");
       setIngestionResult(result);
-      await loadOverview();
     } catch (caughtError) {
       console.error(caughtError);
       setError("The synthetic stream could not be generated.");
+      setStreamStatus("idle");
     }
   };
 
@@ -562,7 +580,29 @@ function App() {
               <div className="metric-card"><span>Active incidents</span><strong>{String(streamMetrics.active_incidents)}</strong></div>
               <div className="metric-card"><span>Latency</span><strong>{String(streamMetrics.processing_latency_ms)} ms</strong></div>
             </div>
-            <div className="empty-state">Status: {streamStatus.toUpperCase()} · Synthetic Demo Stream · actual risk engine output is used.</div>
+            <div className="stream-status">Status: {streamStatus.toUpperCase()} · Synthetic Demo Stream · actual risk engine output is used.</div>
+            {streamEvents.length > 0 && (
+              <div className="system-card">
+                <div className="panel-header" style={{ marginBottom: "0.75rem" }}>
+                  <h3 style={{ margin: 0 }}>Live event feed</h3>
+                  <span className="chip subtle">{streamEvents.length} events</span>
+                </div>
+                <div className="merchant-list">
+                  {streamEvents.slice(0, 12).map((event, index) => (
+                    <div key={String(event.event_id ?? `event-${index}`)} className="merchant-row" style={{ cursor: "default" }}>
+                      <div>
+                        <strong>{String(event.event_id ?? "unknown-event")}</strong>
+                        <small>{String(event.merchant_id ?? "unknown-merchant")}</small>
+                      </div>
+                      <div className="merchant-risk">
+                        <span>{String(event.payment_status ?? "captured")}</span>
+                        <small>{String(event.occurred_at ?? "")}</small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </section>
         )}
 
@@ -831,9 +871,9 @@ function App() {
             <div className="panel-header">
               <h3>Incident center</h3>
               <div className="toolbar">
-                <input type="text" placeholder="Search merchant or incident" value={selectedIncidentId ?? ""} onChange={() => undefined} />
+                <input type="text" placeholder="Search merchant or incident" value={incidentSearch} onChange={(event) => setIncidentSearch(event.target.value)} />
                 <select value={selectedIncidentId ?? ""} onChange={(event) => setSelectedIncidentId(event.target.value)}>
-                  {incidents.map((incident) => (
+                  {filteredIncidents.map((incident) => (
                     <option key={incident.incident_id} value={incident.incident_id}>{incident.merchant_id}</option>
                   ))}
                 </select>
@@ -852,7 +892,7 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {incidents.map((incident) => (
+                  {filteredIncidents.map((incident) => (
                     <tr key={incident.incident_id} onClick={() => setSelectedIncidentId(incident.incident_id)} className={selectedIncidentId === incident.incident_id ? "selected-row" : ""}>
                       <td>{incident.incident_id}</td>
                       <td>{incident.merchant_id}</td>
@@ -908,6 +948,7 @@ function App() {
                     <li>Deviation: {incidentDetail.deviation}</li>
                     <li>Suspicious transactions: {incidentDetail.affected_transaction_count}</li>
                   </ul>
+                  <div className="key-value-row"><span>Supporting transaction IDs</span><strong>{incidentDetail.suspicious_event_ids?.join(", ") || "None persisted"}</strong></div>
                 </div>
 
                 <div className="info-card">
@@ -927,7 +968,7 @@ function App() {
                       <div className="key-value-row"><span>Recommended action</span><strong>{investigation.recommended_action ?? "N/A"}</strong></div>
                       {investigation.ml_assessment && (
                         <>
-                          <h5>ML ANOMALY ANALYSIS</h5>
+                          <h5>ML ANOMALY ANALYSIS · SUPPLEMENTARY SIGNAL</h5>
                           <div className="key-value-row"><span>Model</span><strong>{investigation.ml_assessment.model ?? "Local Isolation Forest"}</strong></div>
                           <div className="key-value-row"><span>Status</span><strong>{investigation.ml_assessment.available ? "Available" : "Insufficient Evidence"}</strong></div>
                           <div className="key-value-row"><span>Assessment</span><strong>{investigation.ml_assessment.assessment ?? "N/A"}</strong></div>

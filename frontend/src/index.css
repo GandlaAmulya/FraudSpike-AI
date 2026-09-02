@@ -156,6 +156,15 @@ button {
 .warn { color: #fbbf24; }
 .muted { color: #9aa8bb; }
 
+.stream-status {
+  padding: 10px 12px;
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 10px;
+  background: rgba(96, 165, 250, 0.07);
+  color: var(--muted-strong);
+  font-size: 0.86rem;
+}
+
 .main-panel {
   display: flex;
   flex-direction: column;

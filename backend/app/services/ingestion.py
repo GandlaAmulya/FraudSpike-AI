@@ -140,32 +140,38 @@ def _normalize_event(raw: dict[str, Any]) -> PaymentEvent:
     )
 
 
-async def _load_merchant_history(session, merchant_id: str, before: datetime | None = None) -> list[PaymentEvent]:
+async def load_merchant_history(session, merchant_id: str, before: datetime | None = None) -> list[PaymentEvent]:
     stmt = select(PaymentEventModel).where(PaymentEventModel.merchant_id == merchant_id)
     if before is not None:
         stmt = stmt.where(PaymentEventModel.occurred_at < before)
     rows = (await session.execute(stmt)).scalars().all()
-    return [
-        PaymentEvent(
-            event_id=row.event_id,
-            merchant_id=row.merchant_id,
-            occurred_at=row.occurred_at,
-            amount=row.amount,
-            currency=row.currency,
-            payment_method=PaymentMethodType(row.payment_method),
-            payment_status=PaymentStatus(row.payment_status),
-            customer_reference=row.customer_reference,
-            device_reference=row.device_reference,
-            geography=(
-                None
-                if row.geography_country is None and row.geography_region is None
-                else {"country_code": row.geography_country, "region_code": row.geography_region}
-            ),
-            fraud_label=FraudLabel(row.fraud_label),
-            metadata=json.loads(row.metadata_json or "{}"),
+    events: list[PaymentEvent] = []
+    for row in rows:
+        occurred_at = row.occurred_at
+        if occurred_at.tzinfo is None or occurred_at.utcoffset() is None:
+            occurred_at = occurred_at.replace(tzinfo=UTC)
+        occurred_at = occurred_at.astimezone(UTC)
+        events.append(
+            PaymentEvent(
+                event_id=row.event_id,
+                merchant_id=row.merchant_id,
+                occurred_at=occurred_at,
+                amount=row.amount,
+                currency=row.currency,
+                payment_method=PaymentMethodType(row.payment_method),
+                payment_status=PaymentStatus(row.payment_status),
+                customer_reference=row.customer_reference,
+                device_reference=row.device_reference,
+                geography=(
+                    None
+                    if row.geography_country is None and row.geography_region is None
+                    else {"country_code": row.geography_country, "region_code": row.geography_region}
+                ),
+                fraud_label=FraudLabel(row.fraud_label),
+                metadata=json.loads(row.metadata_json or "{}"),
+            )
         )
-        for row in rows
-    ]
+    return events
 
 
 async def _create_incidents_for_inserted_events(session, accepted_events: list[PaymentEvent]) -> list[str]:
@@ -173,7 +179,7 @@ async def _create_incidents_for_inserted_events(session, accepted_events: list[P
         return []
     all_events = []
     for event in accepted_events:
-        historical = await _load_merchant_history(session, event.merchant_id)
+        historical = await load_merchant_history(session, event.merchant_id)
         all_events.extend(historical)
     all_events.extend(accepted_events)
     incidents = detect_merchant_spikes(all_events)
@@ -241,13 +247,13 @@ async def validate_and_ingest_events(raw_events: list[dict[str, Any]]) -> dict[s
                     duplicates.append(event.event_id)
                     continue
                 accepted.append(event)
-            except Exception as exc:
+            except (TypeError, ValueError):
                 rejected.append({"index": index, "error": "Invalid event payload.", "payload": raw})
 
         if accepted:
             await persist_payment_events(session, accepted)
             for event in accepted:
-                history = await _load_merchant_history(session, event.merchant_id, event.occurred_at)
+                history = await load_merchant_history(session, event.merchant_id, event.occurred_at)
                 risk = score_transaction(event, history)
                 await persist_audit_event(
                     session,
@@ -308,6 +314,7 @@ def build_synthetic_stream(scenario: str = "FRAUD SPIKE") -> list[dict[str, Any]
         ("merchant-001", 430, 0.02, "KA"),
         ("merchant-006", 620, 0.04, "TN"),
     ]
+    run_tag = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
     events: list[dict[str, Any]] = []
     for index in range(12):
         merchant_id, base_amount, merchant_rate, region = merchants[index % len(merchants)]
@@ -320,7 +327,7 @@ def build_synthetic_stream(scenario: str = "FRAUD SPIKE") -> list[dict[str, Any]
         elif scenario == "FALSE POSITIVE / BORDERLINE":
             amount = base_amount * 1.5
         event = {
-            "event_id": f"demo-{scenario.lower().replace(' ', '-')}-{index}",
+            "event_id": f"demo-{scenario.lower().replace(' ', '-')}-{run_tag}-{index}",
             "merchant_id": merchant_id,
             "occurred_at": datetime.now(UTC).isoformat(),
             "amount": str(round(float(amount), 2)),
@@ -339,6 +346,7 @@ def build_synthetic_stream(scenario: str = "FRAUD SPIKE") -> list[dict[str, Any]
                 "current_fraud_rate": str(merchant_rate),
                 "previous_fraud_rate": str(max(merchant_rate * 0.25, 0.02)),
                 "historical_transaction_count": 12,
+                "historic_transaction_count": 12,
                 "historical_fraud_count": 2,
             },
         }

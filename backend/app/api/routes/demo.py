@@ -23,7 +23,7 @@ from app.schemas import (
     VerificationResult,
 )
 from app.services.dataset import build_demo_dataset, split_events_by_period
-from app.services.ingestion import build_synthetic_stream, validate_and_ingest_events
+from app.services.ingestion import build_synthetic_stream, load_merchant_history, validate_and_ingest_events
 from app.services.investigation import build_investigation_for_incident, verify_investigation_claims
 from app.services.risk_engine import analyze_batch, score_transaction
 from app.services.storage import (
@@ -93,6 +93,8 @@ async def synthetic_stream(payload: dict[str, str] | None = None) -> dict[str, o
     result = await validate_and_ingest_events(rows)
     result["scenario"] = scenario
     result["label"] = "Synthetic Demo Stream"
+    result["events"] = rows
+    result["generated_events"] = len(rows)
     return result
 
 
@@ -286,46 +288,8 @@ async def create_incident(incident: FraudSpikeIncident) -> FraudSpikeIncident:
 
 @router.get("/dashboard/summary")
 async def dashboard_summary() -> dict[str, object]:
-    split = _dataset_key()
-    all_events = split["train"] + split["validation"] + split["test"]
-    incidents = _detected_incidents()
-    total_transactions = len(all_events)
-    total_fraud = sum(
-        1 for event in all_events if event.fraud_label is FraudLabel.FRAUDULENT
-    )
-    severity_breakdown = {
-        "critical": sum(1 for incident in incidents if incident.severity.value == "critical"),
-        "high": sum(1 for incident in incidents if incident.severity.value == "high"),
-        "medium": sum(1 for incident in incidents if incident.severity.value == "medium"),
-        "low": sum(1 for incident in incidents if incident.severity.value == "low"),
-    }
-    merchant_risk = []
-    grouped: dict[str, list[PaymentEvent]] = {}
-    for event in all_events:
-        grouped.setdefault(event.merchant_id, []).append(event)
-    for merchant_id, merchant_events in grouped.items():
-        fraud_count = sum(
-            1 for event in merchant_events if event.fraud_label is FraudLabel.FRAUDULENT
-        )
-        merchant_risk.append(
-            {
-                "merchant_id": merchant_id,
-                "total_transactions": len(merchant_events),
-                "fraudulent_transactions": fraud_count,
-                "fraud_rate": round((fraud_count / len(merchant_events)), 4) if merchant_events else 0,
-            }
-        )
-    merchant_risk.sort(key=lambda item: item["fraud_rate"], reverse=True)
-
-    false_positive_cost_estimate = Decimal(total_fraud) * Decimal("125.00")
-    return {
-        "total_transactions": total_transactions,
-        "fraud_rate": round((total_fraud / total_transactions), 4) if total_transactions else 0,
-        "active_incidents": len(incidents),
-        "severity_breakdown": severity_breakdown,
-        "merchant_risk_ranking": merchant_risk[:5],
-        "false_positive_cost_estimate": str(false_positive_cost_estimate.quantize(Decimal("0.01"))),
-    }
+    async with session_factory() as session:
+        return await get_dashboard_summary(session)
 
 
 @router.get("/dashboard/metrics")
@@ -350,12 +314,12 @@ async def get_incident(incident_id: str) -> FraudSpikeIncident:
 
 @router.post("/incidents/{incident_id}/investigate")
 async def investigate_incident(incident_id: str) -> Investigation:
-    incidents = _detected_incidents()
-    incident = next((item for item in incidents if item.incident_id == incident_id), None)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
-    investigation = build_investigation_for_incident(incident)
     async with session_factory() as session:
+        incident = await get_incident_by_id(session, incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        merchant_events = await load_merchant_history(session, incident.merchant_id)
+        investigation = build_investigation_for_incident(incident, merchant_events=merchant_events)
         await persist_investigation(session, investigation)
     await _create_audit_record(
         incident_id=incident_id,
@@ -415,40 +379,56 @@ async def update_incident_status(
     incident_id: str,
     status: str = Query(...),
 ) -> FraudSpikeIncident:
-    incidents = _detected_incidents()
-    incident = next((item for item in incidents if item.incident_id == incident_id), None)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
-
     try:
-        incident.status = IncidentStatus(status)
+        target_status = IncidentStatus(status)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid incident status") from exc
-    incident.updated_at = datetime.now(UTC)
-    await _create_audit_record(
-        incident_id=incident_id,
-        action="status_updated",
-        details={"status": incident.status.value},
-    )
-    return incident
+
+    action_by_status = {
+        IncidentStatus.INVESTIGATING: "investigate",
+        IncidentStatus.VERIFIED: "verify",
+        IncidentStatus.DISMISSED: "dismiss",
+        IncidentStatus.RESOLVED: "resolve",
+    }
+    if target_status not in action_by_status:
+        async with session_factory() as session:
+            incident = await get_incident_by_id(session, incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        if incident.status is target_status:
+            return incident
+        raise HTTPException(status_code=400, detail="Invalid incident status transition")
+
+    async with session_factory() as session:
+        try:
+            return await transition_incident_status(
+                session,
+                incident_id=incident_id,
+                action=action_by_status[target_status],
+                actor="analyst",
+            )
+        except ValueError as exc:
+            if str(exc) == "Incident not found":
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/incidents/{incident_id}/investigation")
 async def incident_investigation(incident_id: str) -> Investigation:
-    incidents = _detected_incidents()
-    incident = next((item for item in incidents if item.incident_id == incident_id), None)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found")
-    investigation = build_investigation_for_incident(incident)
     async with session_factory() as session:
+        incident = await get_incident_by_id(session, incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        merchant_events = await load_merchant_history(session, incident.merchant_id)
+        investigation = build_investigation_for_incident(incident, merchant_events=merchant_events)
         await persist_investigation(session, investigation)
     return investigation
 
 
 @router.get("/incidents/{incident_id}/verification")
 async def incident_verification(incident_id: str) -> dict[str, object]:
-    incidents = _detected_incidents()
-    incident = next((item for item in incidents if item.incident_id == incident_id), None)
+    async with session_factory() as session:
+        incident = await get_incident_by_id(session, incident_id)
     if incident is None:
         raise HTTPException(status_code=404, detail="Incident not found")
     return verify_investigation_claims(

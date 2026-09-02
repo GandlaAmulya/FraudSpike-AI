@@ -89,7 +89,7 @@ def score_transaction(event: PaymentEvent, historical_events: list[PaymentEvent]
     current_fraud_rate = _safe_decimal(metadata.get("current_fraud_rate"), Decimal("0.03"))
     velocity_1h = int(metadata.get("velocity_1h", 0) or 0)
     velocity_24h = int(metadata.get("velocity_24h", 0) or 0)
-    historical_transaction_count = int(metadata.get("historic_transaction_count", len(history) or 0) or 0)
+    historical_transaction_count = int(metadata.get("historical_transaction_count", metadata.get("historic_transaction_count", len(history) or 0)) or 0)
     historical_fraud_count = int(metadata.get("historical_fraud_count", 0) or 0)
 
     previous_window = [item for item in history if item.occurred_at < event.occurred_at]

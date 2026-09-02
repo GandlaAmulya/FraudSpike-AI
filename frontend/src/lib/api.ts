@@ -34,6 +34,10 @@ export type IngestionResult = {
   duplicates: number;
   merchants_detected: number;
   processing_time_ms: number;
+  generated_events?: number;
+  scenario?: string;
+  label?: string;
+  events?: Array<Record<string, unknown>>;
   risk_summary: {
     records_processed: number;
     high_risk: number;
@@ -147,6 +151,7 @@ export type IncidentRecord = {
   status: string;
   detector_version: string;
   confidence: string | null;
+  suspicious_event_ids?: string[];
 };
 
 export type InvestigationRecord = {

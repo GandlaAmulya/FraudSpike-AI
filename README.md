@@ -37,7 +37,7 @@ FastAPI backend
         │
         ├─ risk scoring
         ├─ merchant spike detection
-        ├─ incident persistence
+        ├─ SQLite incident persistence
         ├─ evidence assembly
         ├─ investigation + verification
         └─ audit trail
@@ -59,7 +59,7 @@ React + TypeScript frontend
 - incident creation with severity, lifecycle, and evidence references
 - evidence-grounded investigation summaries that tie conclusions to stored records
 - local anomaly analysis using a lightweight Isolation Forest signal when enough history exists
-- human-in-the-loop analyst review with recommendation tracking
+- human-in-the-loop analyst review with persisted lifecycle transitions
 - persistence and audit records that make the workflow explainable and traceable
 - held-out evaluation with transparent metric calculation and honest reporting
 
@@ -102,11 +102,9 @@ The deterministic fraud detection and risk engine remain the primary operational
 
 Analyst actions are recorded, not executed automatically. The system supports a review-oriented decision flow such as:
 
-- MONITOR
 - INVESTIGATE
 - VERIFY
 - HOLD
-- BLOCK
 
 These actions are recorded against the investigation and incident for traceability. The system does not perform destructive payment actions in the demo workflow.
 
@@ -156,7 +154,10 @@ npm install
 npm run dev -- --host 0.0.0.0 --port 5000
 ```
 
-Then open the frontend in the browser and use the incident dashboard and investigation workflow.
+Then open the frontend in the browser. Start the `FRAUD SPIKE` scenario from
+Live Stream to ingest events through the real risk engine. The resulting
+persisted incidents can be opened from Incident Center, where investigation,
+local ML assessment, evidence references, and audit events are available.
 
 ## API overview
 
